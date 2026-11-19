@@ -42,18 +42,32 @@ object Priv {
 
     data class Result(val code: Int, val out: String)
 
-    fun sh(cmd: String): Result {
+    fun sh(cmd: String): Result = try {
+        run(cmd)
+    } catch (e: Throwable) {
+        Log.w(TAG, "'$cmd' threw", e)
+        Result(-3, e.toString())
+    }
+
+    private fun run(cmd: String): Result {
         val proc: Process = when (backend()) {
             Backend.SHIZUKU -> newShizukuProcess(arrayOf("sh", "-c", cmd))
             Backend.ROOT -> ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
             Backend.NONE -> return Result(-1, "no privilege backend")
         }
+        // Process.waitFor(timeout) polls exitValue() expecting IllegalThreadStateException;
+        // ShizukuRemoteProcess throws IllegalArgumentException instead, so use a watchdog.
+        val watchdog = Thread {
+            try {
+                Thread.sleep(10_000)
+                proc.destroy()
+            } catch (_: InterruptedException) {
+            }
+        }.apply { isDaemon = true; start() }
         val out = proc.inputStream.bufferedReader().readText()
-        if (!proc.waitFor(10, TimeUnit.SECONDS)) {
-            proc.destroy()
-            return Result(-2, out)
-        }
-        val r = Result(proc.exitValue(), out.trim())
+        val code = proc.waitFor()
+        watchdog.interrupt()
+        val r = Result(code, out.trim())
         if (r.code != 0) Log.w(TAG, "'$cmd' -> ${r.code}: ${r.out}")
         return r
     }
