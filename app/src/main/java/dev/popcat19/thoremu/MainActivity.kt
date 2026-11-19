@@ -1,0 +1,223 @@
+package dev.popcat19.thoremu
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import rikka.shizuku.Shizuku
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            val scheme = runCatching { dynamicDarkColorScheme(this) }.getOrElse { darkColorScheme() }
+            MaterialTheme(colorScheme = scheme) {
+                Scaffold { pad -> Screen(Modifier.padding(pad)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Screen(modifier: Modifier) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var backend by remember { mutableStateOf(Priv.Backend.NONE) }
+    var tick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(tick) {
+        backend = withContext(Dispatchers.IO) { Priv.backend() }
+    }
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text("Thor Emu", style = MaterialTheme.typography.headlineMedium)
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Privilege", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    when (backend) {
+                        Priv.Backend.SHIZUKU -> "✓ Shizuku"
+                        Priv.Backend.ROOT -> "✓ Root"
+                        Priv.Backend.NONE -> "✗ None. Start Shizuku and grant access, or grant root."
+                    }
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        runCatching { if (Shizuku.pingBinder()) Shizuku.requestPermission(1) }
+                        scope.launch { delay(1500); tick++ }
+                    }) { Text("Request Shizuku") }
+                    OutlinedButton(onClick = { tick++ }) { Text("Recheck") }
+                }
+            }
+        }
+
+        PinCard()
+        MouseCard()
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Mouse mapping", style = MaterialTheme.typography.titleMedium)
+                Text("Left stick → pointer, right stick → scroll")
+                Text("A → left, B → right, L3 → middle, X → back, Y → forward")
+                Text("Hold L3 + left stick → middle-drag pan")
+                Text("Hold Select + Start 1 s → toggle mouse mode")
+                Text("Disable Odin mapping's own mouse mode while this runs.")
+            }
+        }
+    }
+}
+
+@Composable
+private fun PinCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var managed by remember { mutableStateOf(Prefs.pinManaged(ctx)) }
+    var mode by remember { mutableStateOf(Prefs.pinMode(ctx)) }
+    var live by remember { mutableStateOf(PinMode.current(ctx)) }
+
+    fun commit(newManaged: Boolean, newMode: PinMode) {
+        managed = newManaged
+        mode = newMode
+        Prefs.setPin(ctx, newManaged, newMode)
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                if (newManaged) PinMode.apply(newMode)
+                PinKeeperService.sync(ctx.applicationContext)
+            }
+            delay(300)
+            live = PinMode.current(ctx)
+        }
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Keep IME pin", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Switch(checked = managed, onCheckedChange = { commit(it, mode) })
+            }
+            val choices = listOf(PinMode.TOP, PinMode.BOTTOM)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                choices.forEachIndexed { i, m ->
+                    SegmentedButton(
+                        selected = mode == m,
+                        onClick = { commit(managed, m) },
+                        shape = SegmentedButtonDefaults.itemShape(i, choices.size),
+                    ) { Text(m.label) }
+                }
+            }
+            Text("Current system state: ${live.label}", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun MouseCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var state by remember { mutableStateOf(Daemon.State(false, false)) }
+    var onBoot by remember { mutableStateOf(Prefs.daemonOnBoot(ctx)) }
+    var dz by remember { mutableFloatStateOf(Prefs.deadzone(ctx)) }
+    var ptr by remember { mutableFloatStateOf(Prefs.pointerSpeed(ctx)) }
+    var scr by remember { mutableFloatStateOf(Prefs.scrollSpeed(ctx)) }
+
+    suspend fun refresh() {
+        state = withContext(Dispatchers.IO) { Daemon.state() }
+    }
+    LaunchedEffect(Unit) { while (true) { refresh(); delay(2000) } }
+
+    fun act(block: () -> Unit) = scope.launch {
+        withContext(Dispatchers.IO) { block() }
+        delay(300)
+        refresh()
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Mouse emulation", style = MaterialTheme.typography.titleMedium)
+            Text(
+                when {
+                    !state.running -> "Daemon stopped"
+                    state.active -> "Daemon running, mouse mode on"
+                    else -> "Daemon running, mouse mode off"
+                }
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (state.running) {
+                    Button(onClick = { act { Daemon.toggle() } }) { Text(if (state.active) "Mouse off" else "Mouse on") }
+                    OutlinedButton(onClick = { act { Daemon.stop() } }) { Text("Stop daemon") }
+                } else {
+                    Button(onClick = { act { Daemon.start(ctx) } }) { Text("Start daemon") }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Start daemon at boot", modifier = Modifier.weight(1f))
+                Switch(checked = onBoot, onCheckedChange = { onBoot = it; Prefs.setDaemonOnBoot(ctx, it) })
+            }
+            Labeled("Deadzone ${"%.2f".format(dz)}") {
+                Slider(value = dz, onValueChange = { dz = it }, valueRange = 0.05f..0.4f)
+            }
+            Labeled("Pointer speed ${ptr.toInt()} px/s") {
+                Slider(value = ptr, onValueChange = { ptr = it }, valueRange = 400f..3000f)
+            }
+            Labeled("Scroll speed ${scr.toInt()} detents/s") {
+                Slider(value = scr, onValueChange = { scr = it }, valueRange = 4f..40f)
+            }
+            OutlinedButton(onClick = {
+                Prefs.setTuning(ctx, dz, ptr, scr)
+                act { if (Daemon.state().running) Daemon.restart(ctx) }
+            }) { Text("Apply tuning") }
+        }
+    }
+}
+
+@Composable
+private fun Labeled(label: String, content: @Composable () -> Unit) {
+    Column {
+        Text(label, style = MaterialTheme.typography.bodySmall)
+        content()
+    }
+}
