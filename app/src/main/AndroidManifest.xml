@@ -8,12 +8,12 @@
     <application
         android:allowBackup="false"
         android:extractNativeLibs="true"
-        android:label="Thor Emu"
+        android:label="ThorUtil"
         android:icon="@drawable/ic_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.ThorEmu">
+            android:theme="@style/Theme.ThorUtil">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

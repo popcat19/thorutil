@@ -1,5 +1,5 @@
 {
-  description = "thor-emu: IME pin persistence and gamepad mouse for AYN Thor";
+  description = "thorutil: IME pin persistence and gamepad mouse for AYN Thor";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

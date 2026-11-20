@@ -1,8 +1,8 @@
-package dev.popcat19.thoremu.tiles
+package dev.popcat19.thorutil.tiles
 
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import dev.popcat19.thoremu.Daemon
+import dev.popcat19.thorutil.Daemon
 
 class MouseEmuTileService : TileService() {
     override fun onStartListening() = refresh()

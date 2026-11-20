@@ -1,4 +1,4 @@
-package dev.popcat19.thoremu
+package dev.popcat19.thorutil
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -13,7 +13,7 @@ object Prefs {
     private const val SCROLL = "scroll_speed"
 
     private fun sp(ctx: Context): SharedPreferences =
-        ctx.createDeviceProtectedStorageContext().getSharedPreferences("thor_emu", Context.MODE_PRIVATE)
+        ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
 
     fun pinManaged(ctx: Context) = sp(ctx).getBoolean(MANAGED, false)
     fun pinMode(ctx: Context) = PinMode.of(sp(ctx).getInt(PIN, PinMode.BOTTOM.id))

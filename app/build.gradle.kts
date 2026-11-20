@@ -5,12 +5,12 @@ plugins {
 }
 
 android {
-    namespace = "dev.popcat19.thoremu"
+    namespace = "dev.popcat19.thorutil"
     compileSdk = 35
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
-        applicationId = "dev.popcat19.thoremu"
+        applicationId = "dev.popcat19.thorutil"
         minSdk = 33
         targetSdk = 35
         versionCode = 1
@@ -76,7 +76,7 @@ tasks.named("preBuild") { dependsOn(buildDaemon) }
 
 val moduleZip by tasks.registering(Zip::class) {
     dependsOn(buildDaemon)
-    archiveFileName.set("thor-emu-magisk.zip")
+    archiveFileName.set("thorutil-magisk.zip")
     destinationDirectory.set(layout.buildDirectory.dir("outputs/magisk"))
     from(rootProject.file("module"))
     from(daemonOut.map { it.file("arm64-v8a/libthormouse.so") }) { rename { "thor-mouse" } }

@@ -1,4 +1,4 @@
-package dev.popcat19.thoremu
+package dev.popcat19.thorutil
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        PinKeeperService.sync(applicationContext)
         setContent {
             val scheme = runCatching { dynamicDarkColorScheme(this) }.getOrElse { darkColorScheme() }
             MaterialTheme(colorScheme = scheme) {
@@ -73,7 +74,7 @@ private fun Screen(modifier: Modifier) {
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Thor Emu", style = MaterialTheme.typography.headlineMedium)
+        Text("ThorUtil", style = MaterialTheme.typography.headlineMedium)
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

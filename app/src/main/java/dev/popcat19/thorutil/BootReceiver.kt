@@ -1,4 +1,4 @@
-package dev.popcat19.thoremu
+package dev.popcat19.thorutil
 
 import android.content.BroadcastReceiver
 import android.content.Context

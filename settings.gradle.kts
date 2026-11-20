@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "thor-emu"
+rootProject.name = "thorutil"
 include(":app")

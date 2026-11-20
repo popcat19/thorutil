@@ -1,10 +1,10 @@
-package dev.popcat19.thoremu.tiles
+package dev.popcat19.thorutil.tiles
 
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import dev.popcat19.thoremu.PinKeeperService
-import dev.popcat19.thoremu.PinMode
-import dev.popcat19.thoremu.Prefs
+import dev.popcat19.thorutil.PinKeeperService
+import dev.popcat19.thorutil.PinMode
+import dev.popcat19.thorutil.Prefs
 
 // Cycles Off -> Bottom -> Top -> Off. Off also stops the keeper.
 class ImePinTileService : TileService() {

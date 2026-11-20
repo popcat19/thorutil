@@ -1,6 +1,6 @@
-id=thor-emu
-name=Thor Emu mouse daemon
+id=thorutil
+name=ThorUtil mouse daemon
 version=0.1.0
 versionCode=1
 author=popcat19
-description=Starts the thor-mouse uinput daemon at boot (mouse mode off until toggled with Select+Start or the Thor Emu tile).
+description=Starts the thor-mouse uinput daemon at boot (mouse mode off until toggled with Select+Start or the ThorUtil tile).

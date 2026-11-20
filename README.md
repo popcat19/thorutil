@@ -1,4 +1,4 @@
-# Thor Emu
+# ThorUtil
 
 IME pin persistence and native mouse emulation for AYN Thor dual-screen gamepad.
 
@@ -21,12 +21,12 @@ IME pin persistence and native mouse emulation for AYN Thor dual-screen gamepad.
 
 ## Install
 
-1. Install the APK from [Releases](https://github.com/popcat19/thor-emu/releases) (Obtainium works with this repo URL)
-2. Start Shizuku, open Thor Emu, tap Request Shizuku
+1. Install the APK from [Releases](https://github.com/popcat19/thorutil/releases) (Obtainium works with this repo URL)
+2. Start Shizuku, open ThorUtil, tap Request Shizuku
 3. Add the IME Pin and Mouse Emu quick settings tiles
-4. Optional: flash `thor-emu-magisk.zip` in Magisk to start the daemon at boot
+4. Optional: flash `thorutil-magisk.zip` in Magisk to start the daemon at boot
 
-The daemon runs as the shell user and keeps its state in `/data/local/tmp/thor-emu-mouse.state` (`<active> <pid>`). `kill -USR1 <pid>` toggles mouse mode.
+The daemon runs as the shell user and keeps its state in `/data/local/tmp/thorutil-mouse.state` (`<active> <pid>`). `kill -USR1 <pid>` toggles mouse mode.
 
 ## Build
 
@@ -37,7 +37,7 @@ nix develop
 ./gradlew assembleRelease :app:moduleZip
 ```
 
-Outputs: `app/build/outputs/apk/release/app-release.apk` and `app/build/outputs/magisk/thor-emu-magisk.zip`.
+Outputs: `app/build/outputs/apk/release/app-release.apk` and `app/build/outputs/magisk/thorutil-magisk.zip`.
 
 ## License
 

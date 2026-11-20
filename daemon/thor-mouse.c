@@ -21,8 +21,8 @@
 #include <unistd.h>
 
 #define PAD_NAME "Xbox Wireless Controller"
-#define MOUSE_NAME "Thor Emu Mouse"
-#define PASS_NAME "Thor Emu Gamepad"
+#define MOUSE_NAME "ThorUtil Mouse"
+#define PASS_NAME "ThorUtil Gamepad"
 #define AXIS_MAX 32767.0
 #define TICK_MS 8
 #define COMBO_MS 1000
@@ -32,8 +32,8 @@
 static double deadzone = 0.15;
 static double pointer_speed = 1400.0;
 static double scroll_speed = 18.0;
-static const char *state_path = "/data/local/tmp/thor-emu-mouse.state";
-static const char *lock_path = "/data/local/tmp/thor-emu-mouse.lock";
+static const char *state_path = "/data/local/tmp/thorutil-mouse.state";
+static const char *lock_path = "/data/local/tmp/thorutil-mouse.lock";
 
 static volatile sig_atomic_t quit_flag;
 static volatile sig_atomic_t toggle_flag;

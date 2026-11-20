@@ -1,4 +1,4 @@
-package dev.popcat19.thoremu
+package dev.popcat19.thorutil
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -98,7 +98,7 @@ class PinKeeperService : Service() {
     }
 
     companion object {
-        private const val TAG = "ThorEmu/PinKeeper"
+        private const val TAG = "ThorUtil/PinKeeper"
         private const val CHANNEL = "pin_keeper"
         private const val NOTIF_ID = 1
 

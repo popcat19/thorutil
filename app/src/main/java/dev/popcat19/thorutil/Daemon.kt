@@ -1,4 +1,4 @@
-package dev.popcat19.thoremu
+package dev.popcat19.thorutil
 
 import android.content.Context
 import java.io.File
@@ -6,8 +6,8 @@ import java.io.File
 // Controls the native thor-mouse daemon. The binary ships as libthormouse.so so the
 // package manager extracts it executable into nativeLibraryDir.
 object Daemon {
-    const val STATE = "/data/local/tmp/thor-emu-mouse.state"
-    private const val LOG = "/data/local/tmp/thor-emu-mouse.log"
+    const val STATE = "/data/local/tmp/thorutil-mouse.state"
+    private const val LOG = "/data/local/tmp/thorutil-mouse.log"
 
     data class State(val running: Boolean, val active: Boolean)
 

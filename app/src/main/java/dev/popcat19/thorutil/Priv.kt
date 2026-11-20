@@ -1,4 +1,4 @@
-package dev.popcat19.thoremu
+package dev.popcat19.thorutil
 
 import android.content.pm.PackageManager
 import android.util.Log
@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 // Runs shell commands as shell (Shizuku) or root (su). Writes to ime_fixed need one of them,
 // because SettingsProvider rejects non-public System settings from third-party apps.
 object Priv {
-    private const val TAG = "ThorEmu/Priv"
+    private const val TAG = "ThorUtil/Priv"
 
     enum class Backend { SHIZUKU, ROOT, NONE }
 
