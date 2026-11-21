@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ayn_keys_desc">Reads AYN button combos for focus, window swap, previous app and mouse mode. A lone AYN tap still opens the AYN menu.</string>
+</resources>

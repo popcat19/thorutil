@@ -9,6 +9,7 @@ object Daemon {
     const val STATE = "/data/local/tmp/thorutil-mouse.state"
     private const val LOG = "/data/local/tmp/thorutil-mouse.log"
     private const val SUSPEND = "/data/local/tmp/thorutil-mouse.suspend"
+    private const val CMD = "/data/local/tmp/thorutil-mouse.cmd"
 
     data class State(val running: Boolean, val active: Boolean)
 
@@ -32,6 +33,10 @@ object Daemon {
     fun stop(): Boolean = Priv.sh("kill ${pidExpr()} 2>/dev/null; true").code == 0
 
     fun toggle(): Boolean = Priv.sh("kill -USR1 ${pidExpr()}").code == 0
+
+    // Sets focus.current in the daemon; the pointer follows only while mouse mode is on.
+    fun pointer(bottom: Boolean): Boolean =
+        Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] || exit 1; echo ${if (bottom) "bottom" else "top"} > $CMD; chmod 666 $CMD; kill -USR2 \$p").code == 0
 
     // Returns true only when the suspend state actually changed.
     fun setSuspended(on: Boolean): Boolean {

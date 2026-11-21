@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.popcat19.thorutil.ayn.AynCard
+import dev.popcat19.thorutil.feedback.FeedbackCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -99,6 +101,8 @@ private fun Screen(modifier: Modifier) {
         RotationCard()
         DensityCard()
         MouseCard()
+        AynCard()
+        FeedbackCard()
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

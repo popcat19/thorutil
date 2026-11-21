@@ -1,5 +1,7 @@
 package dev.popcat19.thorutil
 
+import dev.popcat19.thorutil.feedback.Feedback
+import dev.popcat19.thorutil.feedback.FeedbackType
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -96,6 +98,7 @@ class KeeperService : Service() {
         val h = hint ?: RotationHint(this) { mode ->
             Prefs.setRotation(this, mode)
             sync(applicationContext)
+            Feedback.show(this, FeedbackType.ROTATION, "Rotation: ${mode.label}", mode == RotationMode.AUTO)
         }.also { hint = it }
         h.start()
     }

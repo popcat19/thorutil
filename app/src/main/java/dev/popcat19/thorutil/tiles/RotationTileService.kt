@@ -1,5 +1,7 @@
 package dev.popcat19.thorutil.tiles
 
+import dev.popcat19.thorutil.feedback.Feedback
+import dev.popcat19.thorutil.feedback.FeedbackType
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import dev.popcat19.thorutil.KeeperService
@@ -23,8 +25,10 @@ class RotationTileService : TileService() {
     }
 
     private fun cycle() {
-        Prefs.setRotation(this, Prefs.rotation(this).next())
+        val mode = Prefs.rotation(this).next()
+        Prefs.setRotation(this, mode)
         KeeperService.sync(applicationContext)
+        Feedback.show(this, FeedbackType.ROTATION, "Rotation: ${mode.label}", mode == RotationMode.AUTO)
         render()
     }
 
