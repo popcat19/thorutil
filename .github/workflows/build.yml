@@ -1,0 +1,69 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Decode keystore
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_B64: ${{ secrets.THORUTIL_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            [ "$GITHUB_REF_TYPE" = tag ] && { echo "::error::tag build needs keystore secret"; exit 1; }
+            echo "no keystore secret, debug-signed build"; exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "THORUTIL_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          THORUTIL_STORE_PASSWORD: ${{ secrets.THORUTIL_STORE_PASSWORD }}
+          THORUTIL_KEY_ALIAS: ${{ secrets.THORUTIL_KEY_ALIAS }}
+          THORUTIL_KEY_PASSWORD: ${{ secrets.THORUTIL_KEY_PASSWORD }}
+        run: nix develop -c ./gradlew --no-daemon assembleRelease
+
+      - name: Package
+        run: |
+          name="thorutil-${GITHUB_REF_NAME#v}.apk"
+          [ "$GITHUB_REF_TYPE" = tag ] || name="thorutil-${GITHUB_SHA::7}.apk"
+          mkdir out && cp app/build/outputs/apk/release/app-release.apk "out/$name"
+          (cd out && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          nix develop -c sh -c '$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs out/*.apk' | grep SHA-256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thorutil
+          path: out/
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            && gh release upload "$GITHUB_REF_NAME" out/* --clobber \
+            || gh release create "$GITHUB_REF_NAME" out/* --title "$GITHUB_REF_NAME" --generate-notes

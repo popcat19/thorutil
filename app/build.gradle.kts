@@ -21,14 +21,18 @@ android {
     }
 
     signingConfigs {
-        val releaseProps = file("${System.getenv("HOME")}/key/thorutil-release.properties")
-        if (releaseProps.exists()) {
-            val props = Properties().apply { load(releaseProps.inputStream()) }
+        // CI passes the key via env; local builds read ~/key/thorutil-release.properties.
+        val env = System.getenv()
+        val releaseProps = file("${env["HOME"]}/key/thorutil-release.properties")
+        val props = Properties().apply { if (releaseProps.exists()) load(releaseProps.inputStream()) }
+        fun key(name: String, envName: String): String? = env[envName] ?: props.getProperty(name)
+        val store = key("storeFile", "THORUTIL_KEYSTORE")
+        if (store != null) {
             create("release") {
-                storeFile = file(props.getProperty("storeFile"))
-                storePassword = props.getProperty("storePassword")
-                keyAlias = props.getProperty("keyAlias")
-                keyPassword = props.getProperty("keyPassword")
+                storeFile = file(store)
+                storePassword = key("storePassword", "THORUTIL_STORE_PASSWORD")
+                keyAlias = key("keyAlias", "THORUTIL_KEY_ALIAS")
+                keyPassword = key("keyPassword", "THORUTIL_KEY_PASSWORD")
             }
         }
     }
