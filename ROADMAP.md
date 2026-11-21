@@ -6,7 +6,7 @@
 - [x] `feat(daemon): remap mouse buttons for xbox layout`
   - A → left, X → right, R3 → middle, B → back, Y → forward. L3 passes through.
   - Middle-drag pan: R3 + left stick.
-- [ ] `feat(daemon): toggle mouse mode on double-press select`
+- [x] `feat(daemon): toggle mouse mode on double-press select`
   - 300 ms window. Replaces Select+Start hold.
 - [ ] `feat(app): suspend mouse emu while keyguard is shown`
   - Release grab on lock, restore on USER_PRESENT.

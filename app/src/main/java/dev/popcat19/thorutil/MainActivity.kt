@@ -105,7 +105,7 @@ private fun Screen(modifier: Modifier) {
                 Text("Left stick → pointer, right stick → scroll")
                 Text("A → left, X → right, R3 → middle, B → back, Y → forward")
                 Text("Hold R3 + left stick → middle-drag pan")
-                Text("Hold Select + Start 1 s → toggle mouse mode")
+                Text("Double-press Select → toggle mouse mode")
                 Text("Disable Odin mapping's own mouse mode while this runs.")
             }
         }

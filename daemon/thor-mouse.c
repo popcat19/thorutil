@@ -25,7 +25,7 @@
 #define PASS_NAME "ThorUtil Gamepad"
 #define AXIS_MAX 32767.0
 #define TICK_MS 8
-#define COMBO_MS 1000
+#define DOUBLE_MS 300
 #define NBITS(x) ((((x) - 1) / (8 * sizeof(long))) + 1)
 #define TEST_BIT(b, a) (((a)[(b) / (8 * sizeof(long))] >> ((b) % (8 * sizeof(long)))) & 1)
 
@@ -42,9 +42,8 @@ struct bridge {
     int pad, mouse, pass;
     int active;
     int ax[ABS_CNT];
-    int sel, start;
-    long combo_at;
-    int combo_fired;
+    long sel_at;
+    int want_toggle;
     double acc_x, acc_y, acc_w, acc_h;
     int held[5];
 };
@@ -234,11 +233,11 @@ static void tick(struct bridge *b, double dt) {
 
 static void handle(struct bridge *b, const struct input_event *ev) {
     if (ev->type == EV_ABS && ev->code < ABS_CNT) b->ax[ev->code] = ev->value;
-    if (ev->type == EV_KEY && (ev->code == BTN_SELECT || ev->code == BTN_START)) {
-        if (ev->code == BTN_SELECT) b->sel = ev->value != 0;
-        else b->start = ev->value != 0;
-        b->combo_at = (b->sel && b->start) ? now_ms() : 0;
-        b->combo_fired = 0;
+    // Select still passes through; the double press only adds the toggle.
+    if (ev->type == EV_KEY && ev->code == BTN_SELECT && ev->value == 1) {
+        long t = now_ms();
+        if (b->sel_at && t - b->sel_at <= DOUBLE_MS) { b->want_toggle = 1; b->sel_at = 0; }
+        else b->sel_at = t;
     }
     if (!b->active) return;
 
@@ -260,7 +259,7 @@ static void usage(const char *argv0) {
     fprintf(stderr,
             "usage: %s [-a] [-d deadzone 0-0.9] [-p pointer px/s] [-s scroll detents/s] [-f state file]\n"
             "  -a  start in mouse mode\n"
-            "  SIGUSR1 toggles mouse mode; hold Select+Start 1s also toggles\n",
+            "  SIGUSR1 toggles mouse mode; double-press Select also toggles\n",
             argv0);
 }
 
@@ -309,7 +308,7 @@ int main(int argc, char **argv) {
             if (start_active) set_active(&b, 1);
         }
 
-        int timeout = b.active ? TICK_MS : (b.combo_at ? 50 : -1);
+        int timeout = b.active ? TICK_MS : -1;
         struct pollfd pfd = {.fd = b.pad, .events = POLLIN};
         long t0 = now_ms();
         int r = poll(&pfd, 1, timeout);
@@ -325,10 +324,7 @@ int main(int argc, char **argv) {
             if (n < 0 && errno != EAGAIN) goto lost;
         }
 
-        if (b.combo_at && !b.combo_fired && now_ms() - b.combo_at >= COMBO_MS) {
-            b.combo_fired = 1;
-            set_active(&b, !b.active);
-        }
+        if (b.want_toggle) { b.want_toggle = 0; set_active(&b, !b.active); }
 
         if (b.active) {
             static long last;

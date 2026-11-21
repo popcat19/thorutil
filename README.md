@@ -7,7 +7,7 @@ IME pin persistence and native mouse emulation for AYN Thor dual-screen gamepad.
 - **IME Pin Persist**: saves your chosen keyboard spawn screen (top/bottom) and restores it after sleep, reboot, or OdinSettings/BetterDualScreenAssistant resets
 - **Native Mouse Mode**: OS-level pointer driven by left stick, right stick vertical and horizontal wheel scroll, with proper dead zone and no fake touch events
 - Quick Settings tiles for toggle and pin control
-- Toggle mouse via QS tile or hold Select+Start for 1s
+- Toggle mouse via QS tile or double-press Select
 - A = left click, X = right, R3 = middle, B = back, Y = forward; L3 passes through
 - Canvas workflow: hold R3 and move the left stick to middle-drag pan, right stick scrolls to zoom
 - D-pad, shoulders, and Start pass through to apps
