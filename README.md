@@ -18,7 +18,8 @@ IME pin persistence, native mouse emulation and top display rotation control for
 - Mouse mode starts on the last touched or focused screen
 - Toast and haptic feedback per action type: bip = on/top/auto, brt = off/bottom/fixed
 - **Bottom volume link**: optional, syncs the bottom speaker volume (`secondary_screen_volume_level`) to media volume; replaces the thorvolume app
-- Privilege via Shizuku, or root as a fallback; the daemon starts whenever Shizuku comes up
+- **Smoothed fan curve**: optional native daemon (`libthorfan.so`) driving the fan from board soak (`xo-therm`) with averaging, hysteresis, slew limits and a sustained junction guard; replaces Odin Smart and yields when you pick Quiet, Sport or Off
+- Privilege via Shizuku, or root as a fallback; the daemons start whenever Shizuku comes up
 
 ## Requirements
 

@@ -11,6 +11,7 @@ object Export {
         DENSITY("density", "Density Presets"),
         VOLUME("volume", "Volume Link"),
         FEEDBACK("feedback", "Feedback"),
+        FAN("fan", "Fan Curve"),
     }
 
     private val sections = mapOf(
@@ -29,9 +30,17 @@ object Export {
         "density_presets" to Section.DENSITY,
         "volume_link" to Section.VOLUME,
         "volume_offset" to Section.VOLUME,
+        "fan_managed" to Section.FAN,
+        "fan_curve" to Section.FAN,
+        "fan_tau" to Section.FAN,
+        "fan_hyst" to Section.FAN,
+        "fan_slew_up" to Section.FAN,
+        "fan_slew_down" to Section.FAN,
+        "fan_guard_c" to Section.FAN,
+        "fan_guard_s" to Section.FAN,
     )
 
-    private val floats = setOf("deadzone", "pointer_speed", "scroll_speed")
+    private val floats = setOf("deadzone", "pointer_speed", "scroll_speed", "fan_tau", "fan_hyst", "fan_slew_up", "fan_slew_down", "fan_guard_c")
     private const val FORMAT = 1
 
     fun export(ctx: Context, s: Set<Section>): String {

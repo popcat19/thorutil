@@ -101,6 +101,7 @@ private fun Screen(modifier: Modifier) {
         RotationCard()
         DensityCard()
         VolumeCard()
+        FanCard()
         MouseCard()
         AynCard()
         FeedbackCard()

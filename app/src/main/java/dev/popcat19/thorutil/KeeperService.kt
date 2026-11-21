@@ -31,8 +31,10 @@ class KeeperService : Service() {
     private lateinit var thread: HandlerThread
     private lateinit var handler: Handler
     private var observer: ContentObserver? = null
+    private var fanObserver: ContentObserver? = null
     private var hint: RotationHint? = null
     private val restore = Runnable { enforce("debounce") }
+    private val fanModeChange = Runnable { FanDaemon.onModeChanged(this) }
     private var lastRot = ""
 
     // Stick motion in mouse mode follows each screen's rotation.
@@ -60,6 +62,10 @@ class KeeperService : Service() {
                 val ok = Daemon.start(this@KeeperService)
                 Log.i(TAG, "daemon watchdog: start -> $ok")
             }
+            if (Prefs.fanManaged(this@KeeperService) && !FanDaemon.stopped && !FanDaemon.state().running) {
+                val ok = FanDaemon.start(this@KeeperService)
+                Log.i(TAG, "fan watchdog: start -> $ok")
+            }
             handler.postDelayed(this, 10_000)
         }
     }
@@ -76,7 +82,12 @@ class KeeperService : Service() {
     private val screenRx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             val action = i.action ?: ""
+            if (action == Intent.ACTION_SHUTDOWN) {
+                handler.post { FanDaemon.onShutdown(this@KeeperService) }
+                return
+            }
             handler.post { syncLock(action) }
+            if (Prefs.fanManaged(this@KeeperService)) handler.post { FanDaemon.setScreenOff(action == Intent.ACTION_SCREEN_OFF) }
             if (action == Intent.ACTION_SCREEN_OFF) hint?.stop() else syncHint()
             // The assistants write their reset shortly after these broadcasts.
             for (delay in longArrayOf(400, 1500, 4000)) handler.postDelayed({ enforce(action) }, delay)
@@ -101,10 +112,19 @@ class KeeperService : Service() {
             contentResolver.registerContentObserver(Settings.System.getUriFor(PinMode.IME_FIXED), false, it)
             contentResolver.registerContentObserver(Settings.System.getUriFor(PinMode.IME_SHOW_ON_SECOND), false, it)
         }
+        fanObserver = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                handler.removeCallbacks(fanModeChange)
+                handler.postDelayed(fanModeChange, 150)
+            }
+        }.also {
+            contentResolver.registerContentObserver(Settings.System.getUriFor(FanDaemon.MODE_KEY), false, it)
+        }
         registerReceiver(screenRx, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_SHUTDOWN)
         })
         registerReceiver(volumeRx, IntentFilter().apply {
             addAction(VolumeLink.ACTION)
@@ -190,6 +210,7 @@ class KeeperService : Service() {
         getSystemService(DisplayManager::class.java).unregisterDisplayListener(displays)
         hint?.stop()
         observer?.let { contentResolver.unregisterContentObserver(it) }
+        fanObserver?.let { contentResolver.unregisterContentObserver(it) }
         unregisterReceiver(screenRx)
         unregisterReceiver(volumeRx)
         thread.quitSafely()
@@ -203,7 +224,7 @@ class KeeperService : Service() {
 
         private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.lockSuspend(ctx) ||
             Prefs.rotation(ctx) != RotationMode.AUTO || Prefs.rotationHint(ctx) || Prefs.volumeLink(ctx) ||
-            Prefs.daemonOnBoot(ctx)
+            Prefs.daemonOnBoot(ctx) || Prefs.fanManaged(ctx)
 
         fun sync(ctx: Context) {
             val i = Intent(ctx, KeeperService::class.java)

@@ -21,6 +21,24 @@ object Prefs {
     private const val SAVED_FORCE_LANDSCAPE = "saved_force_landscape"
     private const val VOLUME_LINK = "volume_link"
     private const val VOLUME_OFFSET = "volume_offset"
+    private const val FAN_MANAGED = "fan_managed"
+    private const val FAN_CURVE = "fan_curve"
+    private const val FAN_TAU = "fan_tau"
+    private const val FAN_HYST = "fan_hyst"
+    private const val FAN_SLEW_UP = "fan_slew_up"
+    private const val FAN_SLEW_DOWN = "fan_slew_down"
+    private const val FAN_GUARD_C = "fan_guard_c"
+    private const val FAN_GUARD_S = "fan_guard_s"
+    private const val SAVED_FAN_MODE = "saved_fan_mode"
+
+    // Board soak (xo-therm) curve: idle ~45 °C -> 20%, sustained load ~61 °C -> 70-80%.
+    const val FAN_CURVE_DEFAULT = "46:20,52:35,58:60,64:100"
+    const val FAN_TAU_DEFAULT = 10f
+    const val FAN_HYST_DEFAULT = 2f
+    const val FAN_SLEW_UP_DEFAULT = 2f
+    const val FAN_SLEW_DOWN_DEFAULT = 1f
+    const val FAN_GUARD_C_DEFAULT = 98f
+    const val FAN_GUARD_S_DEFAULT = 20
 
     private fun sp(ctx: Context): SharedPreferences =
         ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
@@ -70,4 +88,32 @@ object Prefs {
     fun scrollSpeed(ctx: Context) = sp(ctx).getFloat(SCROLL, 12f)
     fun setTuning(ctx: Context, dz: Float, ptr: Float, scr: Float) =
         sp(ctx).edit().putFloat(DEADZONE, dz).putFloat(POINTER, ptr).putFloat(SCROLL, scr).apply()
+
+    fun fanManaged(ctx: Context) = sp(ctx).getBoolean(FAN_MANAGED, false)
+    fun setFanManaged(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(FAN_MANAGED, v).apply()
+
+    fun fanCurve(ctx: Context): String = sp(ctx).getString(FAN_CURVE, FAN_CURVE_DEFAULT) ?: FAN_CURVE_DEFAULT
+    fun setFanCurve(ctx: Context, v: String) = sp(ctx).edit().putString(FAN_CURVE, v).apply()
+
+    fun fanTau(ctx: Context) = sp(ctx).getFloat(FAN_TAU, FAN_TAU_DEFAULT)
+    fun setFanTau(ctx: Context, v: Float) = sp(ctx).edit().putFloat(FAN_TAU, v).apply()
+
+    fun fanHyst(ctx: Context) = sp(ctx).getFloat(FAN_HYST, FAN_HYST_DEFAULT)
+    fun setFanHyst(ctx: Context, v: Float) = sp(ctx).edit().putFloat(FAN_HYST, v).apply()
+
+    fun fanSlewUp(ctx: Context) = sp(ctx).getFloat(FAN_SLEW_UP, FAN_SLEW_UP_DEFAULT)
+    fun setFanSlewUp(ctx: Context, v: Float) = sp(ctx).edit().putFloat(FAN_SLEW_UP, v).apply()
+
+    fun fanSlewDown(ctx: Context) = sp(ctx).getFloat(FAN_SLEW_DOWN, FAN_SLEW_DOWN_DEFAULT)
+    fun setFanSlewDown(ctx: Context, v: Float) = sp(ctx).edit().putFloat(FAN_SLEW_DOWN, v).apply()
+
+    fun fanGuardC(ctx: Context) = sp(ctx).getFloat(FAN_GUARD_C, FAN_GUARD_C_DEFAULT)
+    fun setFanGuardC(ctx: Context, v: Float) = sp(ctx).edit().putFloat(FAN_GUARD_C, v).apply()
+
+    fun fanGuardS(ctx: Context) = sp(ctx).getInt(FAN_GUARD_S, FAN_GUARD_S_DEFAULT)
+    fun setFanGuardS(ctx: Context, v: Int) = sp(ctx).edit().putInt(FAN_GUARD_S, v).apply()
+
+    // Odin fan_mode before ThorUtil switched to custom; 4 = Smart.
+    fun savedFanMode(ctx: Context) = sp(ctx).getInt(SAVED_FAN_MODE, 4)
+    fun setSavedFanMode(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_FAN_MODE, v).apply()
 }

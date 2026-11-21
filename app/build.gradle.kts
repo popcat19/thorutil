@@ -77,18 +77,21 @@ dependencies {
 // The daemon is a static musl binary, packaged as a "lib" so it is extracted executable.
 val daemonOut = layout.buildDirectory.dir("generated/daemon")
 
-val buildDaemon by tasks.registering(Exec::class) {
-    val src = rootProject.file("daemon/thor-mouse.c")
-    val out = daemonOut.map { it.file("arm64-v8a/libthormouse.so") }
-    inputs.file(src)
+fun daemonTask(name: String, src: String, lib: String) = tasks.register<Exec>(name) {
+    val srcFile = rootProject.file("daemon/$src")
+    val out = daemonOut.map { it.file("arm64-v8a/$lib") }
+    inputs.file(srcFile)
     outputs.file(out)
     doFirst { out.get().asFile.parentFile.mkdirs() }
     commandLine(
         "zig", "cc", "-target", "aarch64-linux-musl", "-static", "-O2", "-s",
-        "-o", out.get().asFile.absolutePath, src.absolutePath,
+        "-o", out.get().asFile.absolutePath, srcFile.absolutePath,
     )
 }
 
+val buildDaemon = daemonTask("buildDaemon", "thor-mouse.c", "libthormouse.so")
+val buildFan = daemonTask("buildFan", "thor-fan.c", "libthorfan.so")
+
 android.sourceSets.getByName("main").jniLibs.srcDir(daemonOut)
 
-tasks.named("preBuild") { dependsOn(buildDaemon) }
+tasks.named("preBuild") { dependsOn(buildDaemon, buildFan) }

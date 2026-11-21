@@ -54,6 +54,7 @@ fun ExportCard() {
                     val n = Export.import(ctx, json, picked.toSet())
                     KeeperService.sync(ctx.applicationContext)
                     if (Daemon.state().running) Daemon.restart(ctx)
+                    if (FanDaemon.state().running) FanDaemon.restart(ctx)
                     n
                 }
             }

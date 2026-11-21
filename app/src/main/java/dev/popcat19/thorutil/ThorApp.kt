@@ -21,11 +21,15 @@ class ThorApp : Application() {
     }
 
     private fun kick(why: String) {
-        if (!Prefs.daemonOnBoot(this)) return
+        if (!Prefs.daemonOnBoot(this) && !Prefs.fanManaged(this)) return
         Thread {
             if (!Priv.shizukuReady()) return@Thread Unit.also { Log.i(TAG, "$why: shizuku not ready") }
-            if (Daemon.state().running) return@Thread Unit.also { Log.i(TAG, "$why: daemon running") }
-            Log.i(TAG, "$why: start daemon -> ${Daemon.start(this)}")
+            if (Prefs.daemonOnBoot(this) && !Daemon.state().running) {
+                Log.i(TAG, "$why: start daemon -> ${Daemon.start(this)}")
+            }
+            if (Prefs.fanManaged(this) && !FanDaemon.stopped && !FanDaemon.state().running) {
+                Log.i(TAG, "$why: start fan -> ${FanDaemon.start(this)}")
+            }
         }.start()
     }
 
