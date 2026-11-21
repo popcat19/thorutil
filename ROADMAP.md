@@ -23,7 +23,7 @@
 - [x] `feat(daemon): lower default deadzone to 0.02 for hall sticks`
 - [x] `feat(app): add input field and steps to tuning sliders`
 - [x] `feat(app): add per-panel density control with presets`
-- [ ] `chore: bump version to 0.3.1`
+- [x] `chore: bump version to 0.3.1`
 
 ## v0.4.0
 

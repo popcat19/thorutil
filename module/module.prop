@@ -1,6 +1,6 @@
 id=thorutil
 name=ThorUtil mouse daemon
-version=0.3.0
-versionCode=3
+version=0.3.1
+versionCode=4
 author=popcat19
 description=Starts the thor-mouse uinput daemon at boot (mouse mode off until toggled with double-press Select or the ThorUtil tile).
