@@ -21,6 +21,7 @@ class AynKeyService : AccessibilityService() {
     private var backHeld = false
     private var backCombo = false
     private val swallowed = HashSet<Int>()
+    @Volatile private var stepping = false
 
     override fun onCreate() {
         super.onCreate()
@@ -86,6 +87,17 @@ class AynKeyService : AccessibilityService() {
             combo = true
             swallowed.add(code)
             worker.post { AynActions.run(applicationContext, action) }
+            return true
+        }
+        // Holding AYN+Vol keeps stepping brightness.
+        if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount > 0 && held && code in swallowed) {
+            val action = AynBinds.DEFAULT[code]
+            if (action == AynAction.BRIGHTNESS_UP || action == AynAction.BRIGHTNESS_DOWN) {
+                if (!stepping) {
+                    stepping = true
+                    worker.post { AynActions.run(applicationContext, action); stepping = false }
+                }
+            }
             return true
         }
         if (code in swallowed) {

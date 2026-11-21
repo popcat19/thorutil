@@ -25,6 +25,7 @@ enum class FeedbackType(val key: String, val label: String) {
     HOME("home", "Home on screen"),
     RECENTS("recents", "Recents toggle"),
     ROTATION("rotation", "Rotation"),
+    BRIGHTNESS("brightness", "Brightness"),
 }
 
 // The Thor motor plays only two distinct effects: click/heavy (bip) and tick/double (brt).

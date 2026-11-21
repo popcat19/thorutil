@@ -11,6 +11,8 @@ enum class AynAction(val label: String) {
     PREV_APP_BOTTOM("Previous app (bottom)"),
     RECENTS_TOGGLE("Recents toggle"),
     MOUSE("Mouse mode"),
+    BRIGHTNESS_UP("Brightness up (both)"),
+    BRIGHTNESS_DOWN("Brightness down (both)"),
 }
 
 object AynBinds {
@@ -21,6 +23,8 @@ object AynBinds {
         KeyEvent.KEYCODE_BUTTON_START to AynAction.SWAP_WINDOWS,
         KeyEvent.KEYCODE_BUTTON_B to AynAction.RECENTS_TOGGLE,
         KeyEvent.KEYCODE_BUTTON_X to AynAction.MOUSE,
+        KeyEvent.KEYCODE_VOLUME_UP to AynAction.BRIGHTNESS_UP,
+        KeyEvent.KEYCODE_VOLUME_DOWN to AynAction.BRIGHTNESS_DOWN,
     )
 
     // Back + key combos; back itself re-sent on lone release, matching AYN/Home behavior.
@@ -35,5 +39,5 @@ object AynBinds {
         KeyEvent.KEYCODE_BUTTON_R1 to AynActions.BOTTOM,
     )
 
-    fun label(code: Int) = KeyEvent.keyCodeToString(code).removePrefix("KEYCODE_BUTTON_")
+    fun label(code: Int) = KeyEvent.keyCodeToString(code).removePrefix("KEYCODE_").removePrefix("BUTTON_")
 }

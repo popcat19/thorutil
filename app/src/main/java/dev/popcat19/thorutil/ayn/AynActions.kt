@@ -6,6 +6,7 @@ import dev.popcat19.thorutil.Daemon
 import dev.popcat19.thorutil.Priv
 import dev.popcat19.thorutil.feedback.Feedback
 import dev.popcat19.thorutil.feedback.FeedbackType
+import dev.popcat19.thorutil.brightness.BrightnessLink
 import android.os.SystemClock
 
 // Shell-side actions. screen_focus_lock steers gamepad keys only (Odin Settings maps it
@@ -62,6 +63,10 @@ object AynActions {
                 }
             }
             AynAction.MOUSE -> Daemon.toggle()
+            AynAction.BRIGHTNESS_UP, AynAction.BRIGHTNESS_DOWN -> {
+                val pct = BrightnessLink.step(ctx, a == AynAction.BRIGHTNESS_UP)
+                Feedback.show(ctx, FeedbackType.BRIGHTNESS, "Brightness $pct%", a == AynAction.BRIGHTNESS_UP, padDisplay())
+            }
         }
     }
 
