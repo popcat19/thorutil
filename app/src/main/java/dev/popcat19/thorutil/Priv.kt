@@ -50,13 +50,29 @@ object Priv {
     }
 
     private fun run(cmd: String): Result {
-        val proc: Process = when (backend()) {
-            Backend.SHIZUKU -> newShizukuProcess(arrayOf("sh", "-c", cmd))
-            Backend.ROOT -> ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
-            Backend.NONE -> return Result(-1, "no privilege backend")
+        val procs = mutableListOf<Pair<Backend, () -> Process>>()
+        if (shizukuReady()) procs.add(Backend.SHIZUKU to { newShizukuProcess(arrayOf("sh", "-c", cmd)) })
+        if (rootReady()) procs.add(Backend.ROOT to { ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start() })
+        if (procs.isEmpty()) return Result(-1, "no privilege backend")
+
+        var last: Result? = null
+        for ((be, launcher) in procs) {
+            val proc = try {
+                launcher()
+            } catch (e: Throwable) {
+                last = Result(-2, "$be: ${e.message}")
+                // Only a dead backend falls through; a nonzero exit is the command's own answer.
+                continue
+            }
+            val r = exec(proc)
+            if (r.code != 0) Log.w(TAG, "'$cmd' -> ${r.code}: ${r.out}")
+            return r
         }
-        // Process.waitFor(timeout) polls exitValue() expecting IllegalThreadStateException;
-        // ShizukuRemoteProcess throws IllegalArgumentException instead, so use a watchdog.
+        Log.w(TAG, "all backends failed to launch: ${last?.out}")
+        return last!!
+    }
+
+    private fun exec(proc: Process): Result {
         val watchdog = Thread {
             try {
                 Thread.sleep(10_000)
@@ -67,9 +83,7 @@ object Priv {
         val out = proc.inputStream.bufferedReader().readText()
         val code = proc.waitFor()
         watchdog.interrupt()
-        val r = Result(code, out.trim())
-        if (r.code != 0) Log.w(TAG, "'$cmd' -> ${r.code}: ${r.out}")
-        return r
+        return Result(code, out.trim())
     }
 
     // Shizuku 13 keeps newProcess private; reflection is the documented workaround.
