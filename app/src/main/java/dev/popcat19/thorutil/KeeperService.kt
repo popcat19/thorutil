@@ -3,6 +3,7 @@ package dev.popcat19.thorutil
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
@@ -17,9 +18,10 @@ import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
 
-// Keeps ime_fixed / ime_show_on_second at the user's choice. BetterDSA and the stock
-// dual-screen assistant reset the pin around screen off/on and at boot; this re-applies it.
-class PinKeeperService : Service() {
+// Long-lived helper. Pin: BetterDSA and the stock dual-screen assistant reset ime_fixed
+// around screen off/on and at boot, so re-apply it. Lock: release the pad from mouse
+// mode while the keyguard is up so the gamepad can enter a PIN.
+class KeeperService : Service() {
     private lateinit var thread: HandlerThread
     private lateinit var handler: Handler
     private var observer: ContentObserver? = null
@@ -27,8 +29,10 @@ class PinKeeperService : Service() {
 
     private val screenRx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
+            val action = i.action ?: ""
+            handler.post { syncLock(action) }
             // The assistants write their reset shortly after these broadcasts.
-            for (delay in longArrayOf(400, 1500, 4000)) handler.postDelayed({ enforce(i.action ?: "") }, delay)
+            for (delay in longArrayOf(400, 1500, 4000)) handler.postDelayed({ enforce(action) }, delay)
         }
     }
 
@@ -55,11 +59,11 @@ class PinKeeperService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!Prefs.pinManaged(this)) {
+        if (!needed(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
-        handler.post { enforce("start") }
+        handler.post { enforce("start"); syncLock("start") }
         // Boot: Shizuku can come up after us, so retry a few times.
         for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
         return START_STICKY
@@ -74,15 +78,26 @@ class PinKeeperService : Service() {
         Log.i(TAG, "$why: $have -> $want ${if (ok) "ok" else "failed (${Priv.backend()})"}")
     }
 
+    private fun syncLock(why: String) {
+        val locked = Prefs.lockSuspend(this) && (why == Intent.ACTION_SCREEN_OFF ||
+            (why != Intent.ACTION_USER_PRESENT && getSystemService(KeyguardManager::class.java).isKeyguardLocked))
+        if (Daemon.setSuspended(locked)) Log.i(TAG, "$why: mouse ${if (locked) "suspended" else "resumed"}")
+    }
+
     private fun notification(): Notification {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "IME pin keeper", NotificationManager.IMPORTANCE_MIN))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Keeper", NotificationManager.IMPORTANCE_MIN))
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_keyboard)
-            .setContentTitle("Keeping IME pin: ${Prefs.pinMode(this).label}")
+            .setContentTitle(
+                listOfNotNull(
+                    if (Prefs.pinManaged(this)) "IME pin: ${Prefs.pinMode(this).label}" else null,
+                    if (Prefs.lockSuspend(this)) "Mouse off on lockscreen" else null,
+                ).joinToString(" · ")
+            )
             .setContentIntent(open)
             .setOngoing(true)
             .build()
@@ -98,13 +113,15 @@ class PinKeeperService : Service() {
     }
 
     companion object {
-        private const val TAG = "ThorUtil/PinKeeper"
+        private const val TAG = "ThorUtil/Keeper"
         private const val CHANNEL = "pin_keeper"
         private const val NOTIF_ID = 1
 
+        private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.lockSuspend(ctx)
+
         fun sync(ctx: Context) {
-            val i = Intent(ctx, PinKeeperService::class.java)
-            if (Prefs.pinManaged(ctx)) ctx.startForegroundService(i) else ctx.stopService(i)
+            val i = Intent(ctx, KeeperService::class.java)
+            if (needed(ctx)) ctx.startForegroundService(i) else ctx.stopService(i)
         }
     }
 }

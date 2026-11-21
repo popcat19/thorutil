@@ -37,13 +37,13 @@
             android:multiprocess="false"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <service
-            android:name=".PinKeeperService"
+            android:name=".KeeperService"
             android:directBootAware="true"
             android:foregroundServiceType="specialUse"
             android:exported="false">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Monitors and restores IME pin settings" />
+                android:value="Restores IME pin and suspends mouse emulation on the lockscreen" />
         </service>
         <service
             android:name=".tiles.ImePinTileService"

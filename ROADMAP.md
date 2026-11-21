@@ -8,7 +8,7 @@
   - Middle-drag pan: R3 + left stick.
 - [x] `feat(daemon): toggle mouse mode on double-press select`
   - 300 ms window. Replaces Select+Start hold.
-- [ ] `feat(app): suspend mouse emu while keyguard is shown`
+- [x] `feat(app): suspend mouse emu while keyguard is shown`
   - Release grab on lock, restore on USER_PRESENT.
 - [ ] `feat(app): add button to clear odin mouse-mode shortcut`
   - Clears `first/second_gamepad_to_mouse_key`, sets `global_gamepad_to_mouse_mode=0`.

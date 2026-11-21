@@ -34,9 +34,11 @@ static double pointer_speed = 1000.0;
 static double scroll_speed = 12.0;
 static const char *state_path = "/data/local/tmp/thorutil-mouse.state";
 static const char *lock_path = "/data/local/tmp/thorutil-mouse.lock";
+static const char *suspend_path = "/data/local/tmp/thorutil-mouse.suspend";
 
 static volatile sig_atomic_t quit_flag;
 static volatile sig_atomic_t toggle_flag;
+static volatile sig_atomic_t suspend_flag;
 
 struct bridge {
     int pad, mouse, pass;
@@ -44,6 +46,7 @@ struct bridge {
     int ax[ABS_CNT];
     long sel_at;
     int want_toggle;
+    int suspended, resume_active;
     double acc_x, acc_y, acc_w, acc_h;
     int held[5];
 };
@@ -56,6 +59,7 @@ static long now_ms(void) {
 
 static void on_term(int s) { (void)s; quit_flag = 1; }
 static void on_usr1(int s) { (void)s; toggle_flag = 1; }
+static void on_usr2(int s) { (void)s; suspend_flag = 1; }
 
 static void emit(int fd, int type, int code, int val) {
     struct input_event ev;
@@ -255,11 +259,26 @@ static void handle(struct bridge *b, const struct input_event *ev) {
     emit(b->pass, ev->type, ev->code, ev->value);
 }
 
+// Keyguard: release the pad so it can enter a PIN; the app signals SIGUSR2 after
+// creating or removing the suspend file, so repeated signals are harmless.
+static void sync_suspend(struct bridge *b) {
+    int want = access(suspend_path, F_OK) == 0;
+    if (want == b->suspended) return;
+    if (want) {
+        b->resume_active = b->active;
+        set_active(b, 0);
+    }
+    b->suspended = want;
+    if (!want && b->resume_active) set_active(b, 1);
+    fprintf(stderr, "%s\n", want ? "suspended" : "resumed");
+}
+
 static void usage(const char *argv0) {
     fprintf(stderr,
             "usage: %s [-a] [-d deadzone 0-0.9] [-p pointer px/s] [-s scroll detents/s] [-f state file]\n"
             "  -a  start in mouse mode\n"
-            "  SIGUSR1 toggles mouse mode; double-press Select also toggles\n",
+            "  SIGUSR1 toggles mouse mode; double-press Select also toggles\n"
+            "  SIGUSR2 re-reads the suspend file (exists = suspended)\n",
             argv0);
 }
 
@@ -293,11 +312,14 @@ int main(int argc, char **argv) {
     sigaction(SIGHUP, &sa, NULL);
     sa.sa_handler = on_usr1;
     sigaction(SIGUSR1, &sa, NULL);
+    sa.sa_handler = on_usr2;
+    sigaction(SIGUSR2, &sa, NULL);
 
     struct bridge b;
     memset(&b, 0, sizeof(b));
     b.pad = b.mouse = b.pass = -1;
     write_state(0);
+    sync_suspend(&b);
 
     while (!quit_flag) {
         if (b.pad < 0) {
@@ -305,7 +327,8 @@ int main(int argc, char **argv) {
             if (b.pad < 0) { sleep(2); continue; }
             fprintf(stderr, "pad attached\n");
             memset(b.ax, 0, sizeof(b.ax));
-            if (start_active) set_active(&b, 1);
+            if (start_active && !b.suspended) set_active(&b, 1);
+            else if (start_active) b.resume_active = 1;
         }
 
         int timeout = b.active ? TICK_MS : -1;
@@ -313,7 +336,8 @@ int main(int argc, char **argv) {
         long t0 = now_ms();
         int r = poll(&pfd, 1, timeout);
 
-        if (toggle_flag) { toggle_flag = 0; set_active(&b, !b.active); }
+        if (suspend_flag) { suspend_flag = 0; sync_suspend(&b); }
+        if (toggle_flag) { toggle_flag = 0; if (!b.suspended) set_active(&b, !b.active); }
 
         if (r > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) goto lost;
         if (r > 0) {
@@ -324,7 +348,7 @@ int main(int argc, char **argv) {
             if (n < 0 && errno != EAGAIN) goto lost;
         }
 
-        if (b.want_toggle) { b.want_toggle = 0; set_active(&b, !b.active); }
+        if (b.want_toggle) { b.want_toggle = 0; if (!b.suspended) set_active(&b, !b.active); }
 
         if (b.active) {
             static long last;

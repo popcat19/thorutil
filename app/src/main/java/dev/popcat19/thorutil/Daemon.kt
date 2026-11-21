@@ -8,6 +8,7 @@ import java.io.File
 object Daemon {
     const val STATE = "/data/local/tmp/thorutil-mouse.state"
     private const val LOG = "/data/local/tmp/thorutil-mouse.log"
+    private const val SUSPEND = "/data/local/tmp/thorutil-mouse.suspend"
 
     data class State(val running: Boolean, val active: Boolean)
 
@@ -31,6 +32,14 @@ object Daemon {
     fun stop(): Boolean = Priv.sh("kill ${pidExpr()} 2>/dev/null; true").code == 0
 
     fun toggle(): Boolean = Priv.sh("kill -USR1 ${pidExpr()}").code == 0
+
+    // Returns true only when the suspend state actually changed.
+    fun setSuspended(on: Boolean): Boolean {
+        val change = if (on) "[ -e $SUSPEND ] || { touch $SUSPEND; echo y; }" else "[ -e $SUSPEND ] && { rm -f $SUSPEND; echo y; }"
+        if (Priv.sh("$change; true").out.trim() != "y") return false
+        Priv.sh("kill -USR2 ${pidExpr()} 2>/dev/null; true")
+        return true
+    }
 
     fun restart(ctx: Context): Boolean {
         stop()

@@ -11,6 +11,7 @@ object Prefs {
     private const val DEADZONE = "deadzone"
     private const val POINTER = "pointer_speed"
     private const val SCROLL = "scroll_speed"
+    private const val LOCK_SUSPEND = "lock_suspend"
 
     private fun sp(ctx: Context): SharedPreferences =
         ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
@@ -22,6 +23,9 @@ object Prefs {
 
     fun daemonOnBoot(ctx: Context) = sp(ctx).getBoolean(DAEMON_BOOT, false)
     fun setDaemonOnBoot(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(DAEMON_BOOT, v).apply()
+
+    fun lockSuspend(ctx: Context) = sp(ctx).getBoolean(LOCK_SUSPEND, true)
+    fun setLockSuspend(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(LOCK_SUSPEND, v).apply()
 
     fun deadzone(ctx: Context) = sp(ctx).getFloat(DEADZONE, 0.15f)
     fun pointerSpeed(ctx: Context) = sp(ctx).getFloat(POINTER, 1000f)

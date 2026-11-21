@@ -6,7 +6,7 @@ import android.content.Intent
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        PinKeeperService.sync(context)
+        KeeperService.sync(context)
         if (intent.action == Intent.ACTION_BOOT_COMPLETED && Prefs.daemonOnBoot(context)) {
             val pending = goAsync()
             Thread {

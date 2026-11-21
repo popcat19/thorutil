@@ -49,7 +49,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        PinKeeperService.sync(applicationContext)
+        KeeperService.sync(applicationContext)
         setContent {
             val scheme = runCatching { dynamicDarkColorScheme(this) }.getOrElse { darkColorScheme() }
             MaterialTheme(colorScheme = scheme) {
@@ -127,7 +127,7 @@ private fun PinCard() {
         scope.launch {
             withContext(Dispatchers.IO) {
                 if (newManaged) PinMode.apply(newMode)
-                PinKeeperService.sync(ctx.applicationContext)
+                KeeperService.sync(ctx.applicationContext)
             }
             delay(300)
             live = PinMode.current(ctx)
@@ -161,6 +161,7 @@ private fun MouseCard() {
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(Daemon.State(false, false)) }
     var onBoot by remember { mutableStateOf(Prefs.daemonOnBoot(ctx)) }
+    var lockOff by remember { mutableStateOf(Prefs.lockSuspend(ctx)) }
     var dz by remember { mutableFloatStateOf(Prefs.deadzone(ctx)) }
     var ptr by remember { mutableFloatStateOf(Prefs.pointerSpeed(ctx)) }
     var scr by remember { mutableFloatStateOf(Prefs.scrollSpeed(ctx)) }
@@ -197,6 +198,14 @@ private fun MouseCard() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Start daemon at boot", modifier = Modifier.weight(1f))
                 Switch(checked = onBoot, onCheckedChange = { onBoot = it; Prefs.setDaemonOnBoot(ctx, it) })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Off on lockscreen", modifier = Modifier.weight(1f))
+                Switch(checked = lockOff, onCheckedChange = {
+                    lockOff = it
+                    Prefs.setLockSuspend(ctx, it)
+                    KeeperService.sync(ctx.applicationContext)
+                })
             }
             Labeled("Deadzone ${"%.2f".format(dz)}") {
                 Slider(value = dz, onValueChange = { dz = it }, valueRange = 0.05f..0.4f)

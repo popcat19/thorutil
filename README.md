@@ -26,7 +26,7 @@ IME pin persistence and native mouse emulation for AYN Thor dual-screen gamepad.
 3. Add the IME Pin and Mouse Emu quick settings tiles
 4. Optional: flash `thorutil-magisk.zip` in Magisk to start the daemon at boot
 
-The daemon runs as the shell user and keeps its state in `/data/local/tmp/thorutil-mouse.state` (`<active> <pid>`). `kill -USR1 <pid>` toggles mouse mode.
+The daemon runs as the shell user and keeps its state in `/data/local/tmp/thorutil-mouse.state` (`<active> <pid>`). `kill -USR1 <pid>` toggles mouse mode. While `/data/local/tmp/thorutil-mouse.suspend` exists the pad is released and the hotkey is ignored; `kill -USR2 <pid>` makes the daemon re-read it. The app creates the file while the lockscreen is up ("Off on lockscreen", on by default).
 
 ## Build
 
