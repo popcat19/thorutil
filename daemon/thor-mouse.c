@@ -154,10 +154,11 @@ static void destroy(int *fd) {
 
 static int mouse_btn_index(int code) {
     switch (code) {
+    // BTN_NORTH/BTN_WEST are X/Y on this pad (keylayout 0x133/0x134).
     case BTN_SOUTH: return 0;  // A -> left
-    case BTN_EAST: return 1;   // B -> right
-    case BTN_THUMBL: return 2; // L3 -> middle
-    case BTN_NORTH: return 3;  // X -> back
+    case BTN_NORTH: return 1;  // X -> right
+    case BTN_THUMBR: return 2; // R3 -> middle
+    case BTN_EAST: return 3;   // B -> back
     case BTN_WEST: return 4;   // Y -> forward
     default: return -1;
     }

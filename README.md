@@ -8,8 +8,8 @@ IME pin persistence and native mouse emulation for AYN Thor dual-screen gamepad.
 - **Native Mouse Mode**: OS-level pointer driven by left stick, right stick vertical and horizontal wheel scroll, with proper dead zone and no fake touch events
 - Quick Settings tiles for toggle and pin control
 - Toggle mouse via QS tile or hold Select+Start for 1s
-- A = left click, B = right, X = back, Y = forward, L3 = middle
-- Canvas workflow: hold L3 and move the left stick to middle-drag pan, right stick scrolls to zoom
+- A = left click, X = right, R3 = middle, B = back, Y = forward; L3 passes through
+- Canvas workflow: hold R3 and move the left stick to middle-drag pan, right stick scrolls to zoom
 - D-pad, shoulders, and Start pass through to apps
 - Privilege via Shizuku, or root as a fallback; optional Magisk module starts the daemon at boot
 

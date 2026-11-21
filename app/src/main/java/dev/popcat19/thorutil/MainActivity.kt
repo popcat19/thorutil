@@ -103,8 +103,8 @@ private fun Screen(modifier: Modifier) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Mouse mapping", style = MaterialTheme.typography.titleMedium)
                 Text("Left stick → pointer, right stick → scroll")
-                Text("A → left, B → right, L3 → middle, X → back, Y → forward")
-                Text("Hold L3 + left stick → middle-drag pan")
+                Text("A → left, X → right, R3 → middle, B → back, Y → forward")
+                Text("Hold R3 + left stick → middle-drag pan")
                 Text("Hold Select + Start 1 s → toggle mouse mode")
                 Text("Disable Odin mapping's own mouse mode while this runs.")
             }
