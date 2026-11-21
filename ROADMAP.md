@@ -53,7 +53,7 @@
 ## Later
 
 - [ ] `feat(app): add custom cursor from png, cur, svg or jxl`
-  - Root overlay via Magisk module, needs restart per change.
+  - Root overlay, needs restart per change.
 
 ## v0.5.0
 
