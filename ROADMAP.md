@@ -18,6 +18,13 @@
   - Top display: Auto → Portrait → Landscape.
 - [x] `chore: bump version to 0.3.0`
 
+## v0.3.1
+
+- [x] `feat(daemon): lower default deadzone to 0.02 for hall sticks`
+- [x] `feat(app): add input field and steps to tuning sliders`
+- [x] `feat(app): add per-panel density control with presets`
+- [ ] `chore: bump version to 0.3.1`
+
 ## v0.4.0
 
 - [ ] `feat(daemon): use ayn button as meta modifier`
@@ -28,6 +35,13 @@
 - [ ] `build: sign release with local keystore`
   - Secrets via `local.properties` or env.
 - [ ] `chore: bump version to 0.4.0`
+
+## Later
+
+- [ ] `feat(app): add custom cursor from png, cur, svg or jxl`
+  - Root overlay via Magisk module, needs restart per change.
+- [ ] `feat(app): add json config export and import`
+  - Per-section checkboxes.
 
 ## v0.5.0
 
