@@ -22,7 +22,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -254,15 +253,9 @@ private fun MouseCard() {
                     KeeperService.sync(ctx.applicationContext)
                 })
             }
-            Labeled("Deadzone ${"%.2f".format(dz)}") {
-                Slider(value = dz, onValueChange = { dz = it }, valueRange = 0.05f..0.4f)
-            }
-            Labeled("Pointer speed ${ptr.toInt()} px/s") {
-                Slider(value = ptr, onValueChange = { ptr = it }, valueRange = 400f..3000f)
-            }
-            Labeled("Scroll speed ${scr.toInt()} detents/s") {
-                Slider(value = scr, onValueChange = { scr = it }, valueRange = 4f..40f)
-            }
+            NumberSetting("Deadzone", dz, 0f..0.4f, 0.01f, 2) { dz = it }
+            NumberSetting("Pointer speed", ptr, 200f..4000f, 50f, 0, "px/s") { ptr = it }
+            NumberSetting("Scroll speed", scr, 1f..60f, 1f, 0, "detents/s") { scr = it }
             OutlinedButton(onClick = {
                 Prefs.setTuning(ctx, dz, ptr, scr)
                 act { if (Daemon.state().running) Daemon.restart(ctx) }
@@ -295,10 +288,3 @@ private fun OdinShortcutRow() {
     }
 }
 
-@Composable
-private fun Labeled(label: String, content: @Composable () -> Unit) {
-    Column {
-        Text(label, style = MaterialTheme.typography.bodySmall)
-        content()
-    }
-}
