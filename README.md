@@ -34,7 +34,7 @@ IME pin persistence, native mouse emulation and top display rotation control for
 3. Add the IME Pin, Mouse Emu and Rotation quick settings tiles
 4. Optional: flash `thorutil-magisk.zip` in Magisk to start the daemon at boot
 
-From 0.4.0 releases use a release key. Updating from 0.3.x needs one uninstall: export config first, reinstall, import.
+From 0.4.0 releases use a release key. Updating from 0.3.x needs one uninstall and reinstall. Later updates install in place; use config export to keep settings across reinstalls.
 
 Release cert SHA-256: `31bbf3ecf29910736b3e7c65cc16cb8b47f24c6d92044a358dff439a56cd93f2`
 
