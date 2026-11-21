@@ -10,13 +10,13 @@
   - 300 ms window. Replaces Select+Start hold.
 - [x] `feat(app): suspend mouse emu while keyguard is shown`
   - Release grab on lock, restore on USER_PRESENT.
-- [ ] `feat(app): add button to clear odin mouse-mode shortcut`
+- [x] `feat(app): add button to clear odin mouse-mode shortcut`
   - Clears `first/second_gamepad_to_mouse_key`, sets `global_gamepad_to_mouse_mode=0`.
   - Pathfinder Select-double must be set to NOTHING manually.
-- [ ] `feat(app): add rotation suggestion button for top display`
-- [ ] `feat(app): add rotation tile`
+- [x] `feat(app): add rotation suggestion button for top display`
+- [x] `feat(app): add rotation tile`
   - Top display: Auto → Portrait → Landscape.
-- [ ] `chore: bump version to 0.3.0`
+- [x] `chore: bump version to 0.3.0`
 
 ## v0.4.0
 

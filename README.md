@@ -1,12 +1,14 @@
 # ThorUtil
 
-IME pin persistence and native mouse emulation for AYN Thor dual-screen gamepad.
+IME pin persistence, native mouse emulation and top display rotation control for the AYN Thor.
 
 ## Features
 
 - **IME Pin Persist**: saves your chosen keyboard spawn screen (top/bottom) and restores it after sleep, reboot, or OdinSettings/BetterDualScreenAssistant resets
 - **Native Mouse Mode**: OS-level pointer driven by left stick, right stick vertical and horizontal wheel scroll, with proper dead zone and no fake touch events
-- Quick Settings tiles for toggle and pin control
+- Quick Settings tiles for mouse mode, IME pin and top display rotation
+- **Top display rotation**: Auto, Portrait or Landscape via tile or app, plus an optional rotate button when the device is held the other way. Portrait works by holding a 1×1 overlay; it turns off Odin's Force Landscape while active and restores it on Auto
+- **Odin shortcut clear**: one button empties Odin's gamepad-to-mouse shortcut so it can't fight the daemon, with restore
 - Toggle mouse via QS tile or double-press Select
 - A = left click, X = right, R3 = middle, B = back, Y = forward; L3 passes through
 - Canvas workflow: hold R3 and move the left stick to middle-drag pan, right stick scrolls to zoom
@@ -17,13 +19,14 @@ IME pin persistence and native mouse emulation for AYN Thor dual-screen gamepad.
 
 - AYN Thor (Android 13+, arm64)
 - Shizuku running, or Magisk root
-- Odin mapping's own gamepad-to-mouse mode turned off while the daemon runs
+- Odin mapping's own gamepad-to-mouse mode turned off while the daemon runs (use Clear Odin shortcut), and Pathfinder's Select double-press set to Nothing
+- Display over other apps permission for rotation (the app grants it via Shizuku or root)
 
 ## Install
 
 1. Install the APK from [Releases](https://github.com/popcat19/thorutil/releases) (Obtainium works with this repo URL)
 2. Start Shizuku, open ThorUtil, tap Request Shizuku
-3. Add the IME Pin and Mouse Emu quick settings tiles
+3. Add the IME Pin, Mouse Emu and Rotation quick settings tiles
 4. Optional: flash `thorutil-magisk.zip` in Magisk to start the daemon at boot
 
 The daemon runs as the shell user and keeps its state in `/data/local/tmp/thorutil-mouse.state` (`<active> <pid>`). `kill -USR1 <pid>` toggles mouse mode. While `/data/local/tmp/thorutil-mouse.suspend` exists the pad is released and the hotkey is ignored; `kill -USR2 <pid>` makes the daemon re-read it. The app creates the file while the lockscreen is up ("Off on lockscreen", on by default).
