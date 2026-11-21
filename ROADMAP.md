@@ -46,9 +46,9 @@
 - [x] `feat(app): link bottom screen volume to media volume`
 - [x] `feat(app): add json config export and import`
   - Per-section checkboxes.
-- [ ] `build: sign release with local keystore`
-  - Secrets via `local.properties` or env.
-- [ ] `chore: bump version to 0.4.0`
+- [x] `build: sign release with local keystore`
+  - `~/key/thorutil-release.properties`, debug key fallback.
+- [x] `chore: bump version to 0.4.0`
 
 ## Later
 

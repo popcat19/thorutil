@@ -34,6 +34,10 @@ IME pin persistence, native mouse emulation and top display rotation control for
 3. Add the IME Pin, Mouse Emu and Rotation quick settings tiles
 4. Optional: flash `thorutil-magisk.zip` in Magisk to start the daemon at boot
 
+From 0.4.0 releases use a release key. Updating from 0.3.x needs one uninstall: export config first, reinstall, import.
+
+Release cert SHA-256: `31bbf3ecf29910736b3e7c65cc16cb8b47f24c6d92044a358dff439a56cd93f2`
+
 The daemon runs as the shell user and keeps its state in `/data/local/tmp/thorutil-mouse.state` (`<active> <pid>`). `kill -USR1 <pid>` toggles mouse mode. While `/data/local/tmp/thorutil-mouse.suspend` exists the pad is released and the hotkey is ignored; `kill -USR2 <pid>` makes the daemon re-read it. The app creates the file while the lockscreen is up ("Off on lockscreen", on by default).
 
 ## Build
@@ -46,6 +50,8 @@ nix develop
 ```
 
 Outputs: `app/build/outputs/apk/release/app-release.apk` and `app/build/outputs/magisk/thorutil-magisk.zip`.
+
+Release signing reads `~/key/thorutil-release.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`); without it the debug key is used.
 
 ## Roadmap
 
