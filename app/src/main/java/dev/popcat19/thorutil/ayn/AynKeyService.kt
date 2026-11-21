@@ -22,6 +22,33 @@ class AynKeyService : AccessibilityService() {
     private var backCombo = false
     private val swallowed = HashSet<Int>()
     @Volatile private var stepping = false
+    private val main = Handler(android.os.Looper.getMainLooper())
+    private var repeatCode = 0
+    private var repeatTask: Runnable? = null
+
+    // Accessibility filters see raw down/up only; repeats come later from the dispatcher.
+    private fun startRepeat(code: Int, action: AynAction) {
+        stopRepeat()
+        repeatCode = code
+        val task = object : Runnable {
+            override fun run() {
+                if (!held) return stopRepeat()
+                if (!stepping) {
+                    stepping = true
+                    worker.post { AynActions.run(applicationContext, action); stepping = false }
+                }
+                main.postDelayed(this, REPEAT_MS)
+            }
+        }
+        repeatTask = task
+        main.postDelayed(task, REPEAT_DELAY_MS)
+    }
+
+    private fun stopRepeat() {
+        repeatTask?.let { main.removeCallbacks(it) }
+        repeatTask = null
+        repeatCode = 0
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -40,6 +67,7 @@ class AynKeyService : AccessibilityService() {
                 KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) { held = true; combo = false }
                 KeyEvent.ACTION_UP -> {
                     held = false
+                    stopRepeat()
                     if (!combo) worker.post { AynActions.tap(applicationContext) }
                 }
             }
@@ -87,21 +115,14 @@ class AynKeyService : AccessibilityService() {
             combo = true
             swallowed.add(code)
             worker.post { AynActions.run(applicationContext, action) }
-            return true
-        }
-        // Holding AYN+Vol keeps stepping brightness.
-        if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount > 0 && held && code in swallowed) {
-            val action = AynBinds.DEFAULT[code]
-            if (action == AynAction.BRIGHTNESS_UP || action == AynAction.BRIGHTNESS_DOWN) {
-                if (!stepping) {
-                    stepping = true
-                    worker.post { AynActions.run(applicationContext, action); stepping = false }
-                }
-            }
+            if (action in REPEATING) startRepeat(code, action)
             return true
         }
         if (code in swallowed) {
-            if (e.action == KeyEvent.ACTION_UP) swallowed.remove(code)
+            if (e.action == KeyEvent.ACTION_UP) {
+                swallowed.remove(code)
+                if (code == repeatCode) stopRepeat()
+            }
             return true
         }
         return false
@@ -135,5 +156,8 @@ class AynKeyService : AccessibilityService() {
     companion object {
         const val AYN_SCAN = 194
         const val GPIO_VENDOR = 0x0001
+        const val REPEAT_DELAY_MS = 400L
+        const val REPEAT_MS = 80L
+        val REPEATING = setOf(AynAction.BRIGHTNESS_UP, AynAction.BRIGHTNESS_DOWN)
     }
 }
