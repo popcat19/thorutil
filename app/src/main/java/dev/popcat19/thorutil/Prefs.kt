@@ -12,6 +12,8 @@ object Prefs {
     private const val POINTER = "pointer_speed"
     private const val SCROLL = "scroll_speed"
     private const val LOCK_SUSPEND = "lock_suspend"
+    private const val ODIN_K1 = "odin_key_first"
+    private const val ODIN_K2 = "odin_key_second"
 
     private fun sp(ctx: Context): SharedPreferences =
         ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
@@ -26,6 +28,14 @@ object Prefs {
 
     fun lockSuspend(ctx: Context) = sp(ctx).getBoolean(LOCK_SUSPEND, true)
     fun setLockSuspend(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(LOCK_SUSPEND, v).apply()
+
+    fun odinKeys(ctx: Context): Pair<String, String>? {
+        val p = sp(ctx)
+        if (!p.contains(ODIN_K1)) return null
+        return (p.getString(ODIN_K1, "") ?: "") to (p.getString(ODIN_K2, "") ?: "")
+    }
+    fun setOdinKeys(ctx: Context, a: String, b: String) =
+        sp(ctx).edit().putString(ODIN_K1, a).putString(ODIN_K2, b).apply()
 
     fun deadzone(ctx: Context) = sp(ctx).getFloat(DEADZONE, 0.15f)
     fun pointerSpeed(ctx: Context) = sp(ctx).getFloat(POINTER, 1000f)

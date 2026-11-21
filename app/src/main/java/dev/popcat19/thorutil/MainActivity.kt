@@ -107,6 +107,7 @@ private fun Screen(modifier: Modifier) {
                 Text("Hold R3 + left stick → middle-drag pan")
                 Text("Double-press Select → toggle mouse mode")
                 Text("Disable Odin mapping's own mouse mode while this runs.")
+                OdinShortcutRow()
             }
         }
     }
@@ -220,6 +221,30 @@ private fun MouseCard() {
                 Prefs.setTuning(ctx, dz, ptr, scr)
                 act { if (Daemon.state().running) Daemon.restart(ctx) }
             }) { Text("Apply tuning") }
+        }
+    }
+}
+
+@Composable
+private fun OdinShortcutRow() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var keys by remember { mutableStateOf<OdinShortcut.Keys?>(null) }
+    suspend fun refresh() {
+        keys = withContext(Dispatchers.IO) { OdinShortcut.read() }
+    }
+    LaunchedEffect(Unit) { refresh() }
+    fun act(block: () -> Unit) = scope.launch {
+        withContext(Dispatchers.IO) { block() }
+        refresh()
+    }
+    val k = keys ?: return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Odin mouse hotkey: ${k.label}", modifier = Modifier.weight(1f))
+        if (!k.cleared) {
+            OutlinedButton(onClick = { act { OdinShortcut.clear(ctx) } }) { Text("Clear") }
+        } else if (Prefs.odinKeys(ctx) != null) {
+            OutlinedButton(onClick = { act { OdinShortcut.restore(ctx) } }) { Text("Restore") }
         }
     }
 }
