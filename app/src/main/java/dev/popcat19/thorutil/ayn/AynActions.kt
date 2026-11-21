@@ -71,10 +71,14 @@ object AynActions {
     }
 
     // Null display = lone Home, sent to the touched-or-focused screen. Pad focus is left alone.
+    // Launch the home intent directly instead of `input keyevent HOME`, which fires Android's
+    // global CLOSE_SYSTEM_DIALOGS broadcast and dismisses the AYN menu (BDSA) on the bottom screen.
     fun home(ctx: Context, display: Int?) {
         val d = display ?: targetDisplay()
-        Log.i(TAG, "home -> $d")
-        Priv.sh("input -d $d keyevent HOME")
+        val cat = if (d == BOTTOM) "android.intent.category.SECONDARY_HOME" else "android.intent.category.HOME"
+        Log.i(TAG, "home -> $d ($cat)")
+        val r = Priv.sh("am start --display $d -a android.intent.action.MAIN -c $cat -f 0x10200000")
+        if (r.code != 0 || r.out.contains("Error:")) Priv.sh("input -d $d keyevent HOME")
         if (display != null) Feedback.show(ctx, FeedbackType.HOME, "Home: ${name(d)}", d == TOP, d)
     }
 
