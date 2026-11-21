@@ -258,7 +258,7 @@ private fun MouseCard() {
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Start daemon at boot", modifier = Modifier.weight(1f))
+                Text("Start daemon with Shizuku", modifier = Modifier.weight(1f))
                 Switch(checked = onBoot, onCheckedChange = { onBoot = it; Prefs.setDaemonOnBoot(ctx, it) })
             }
             Row(verticalAlignment = Alignment.CenterVertically) {

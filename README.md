@@ -18,12 +18,12 @@ IME pin persistence, native mouse emulation and top display rotation control for
 - Mouse mode starts on the last touched or focused screen
 - Toast and haptic feedback per action type: bip = on/top/auto, brt = off/bottom/fixed
 - **Bottom volume link**: optional, syncs the bottom speaker volume (`secondary_screen_volume_level`) to media volume; replaces the thorvolume app
-- Privilege via Shizuku, or root as a fallback; optional Magisk module starts the daemon at boot
+- Privilege via Shizuku, or root as a fallback; the daemon starts whenever Shizuku comes up
 
 ## Requirements
 
 - AYN Thor (Android 13+, arm64)
-- Shizuku running, or Magisk root
+- Shizuku 13.6+ running, or root
 - Odin mapping's own gamepad-to-mouse mode turned off while the daemon runs (use Clear Odin shortcut), Pathfinder uninstalled or its AYN and Select-double binds cleared
 - Display over other apps permission for rotation (the app grants it via Shizuku or root)
 
@@ -32,7 +32,7 @@ IME pin persistence, native mouse emulation and top display rotation control for
 1. Install the APK from [Releases](https://github.com/popcat19/thorutil/releases) (Obtainium works with this repo URL)
 2. Start Shizuku, open ThorUtil, tap Request Shizuku
 3. Add the IME Pin, Mouse Emu and Rotation quick settings tiles
-4. Optional: flash `thorutil-magisk.zip` in Magisk to start the daemon at boot
+4. For boot start, turn on Shizuku "Start on boot" (works without root on a trusted Wi-Fi) and ThorUtil "Start daemon with Shizuku"
 
 From 0.4.0 releases use a release key. Updating from 0.3.x needs one uninstall and reinstall. Later updates install in place; use config export to keep settings across reinstalls.
 
@@ -46,10 +46,10 @@ The daemon is a static musl binary built with `zig cc`, so no NDK is needed. The
 
 ```bash
 nix develop
-./gradlew assembleRelease :app:moduleZip
+./gradlew assembleRelease
 ```
 
-Outputs: `app/build/outputs/apk/release/app-release.apk` and `app/build/outputs/magisk/thorutil-magisk.zip`.
+Output: `app/build/outputs/apk/release/app-release.apk`.
 
 Release signing reads `~/key/thorutil-release.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`); without it the debug key is used.
 

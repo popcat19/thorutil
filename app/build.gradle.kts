@@ -88,11 +88,3 @@ val buildDaemon by tasks.registering(Exec::class) {
 android.sourceSets.getByName("main").jniLibs.srcDir(daemonOut)
 
 tasks.named("preBuild") { dependsOn(buildDaemon) }
-
-val moduleZip by tasks.registering(Zip::class) {
-    dependsOn(buildDaemon)
-    archiveFileName.set("thorutil-magisk.zip")
-    destinationDirectory.set(layout.buildDirectory.dir("outputs/magisk"))
-    from(rootProject.file("module"))
-    from(daemonOut.map { it.file("arm64-v8a/libthormouse.so") }) { rename { "thor-mouse" } }
-}
