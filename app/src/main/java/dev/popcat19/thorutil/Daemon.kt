@@ -25,7 +25,13 @@ object Daemon {
         return State(true, r.out.trim() == "1")
     }
 
+    // Set by a manual stop so the keeper watchdog leaves the daemon down until the next start.
+    @Volatile
+    var stopped = false
+        private set
+
     fun start(ctx: Context): Boolean {
+        stopped = false
         val args = "-d ${Prefs.deadzone(ctx)} -p ${Prefs.pointerSpeed(ctx)} -s ${Prefs.scrollSpeed(ctx)}"
         // A root-run daemon (root Shizuku or su) leaves root-owned files a shell-run one cannot write.
         val cmd = "rm -f $LOG $TOUCH; setsid ${binary(ctx)} $args </dev/null >$LOG 2>&1 & sleep 0.3; " +
@@ -33,7 +39,12 @@ object Daemon {
         return Priv.sh(cmd).code == 0
     }
 
-    fun stop(): Boolean = Priv.sh("kill ${pidExpr()} 2>/dev/null; true").code == 0
+    fun stop(): Boolean {
+        stopped = true
+        return kill()
+    }
+
+    private fun kill(): Boolean = Priv.sh("kill ${pidExpr()} 2>/dev/null; true").code == 0
 
     fun toggle(): Boolean = Priv.sh("kill -USR1 ${pidExpr()}").code == 0
 
@@ -55,7 +66,7 @@ object Daemon {
     }
 
     fun restart(ctx: Context): Boolean {
-        stop()
+        kill()
         Thread.sleep(300)
         return start(ctx)
     }

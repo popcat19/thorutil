@@ -54,6 +54,16 @@ class KeeperService : Service() {
 
     private val volumeSync = Runnable { VolumeLink.sync(this) }
 
+    private val daemonWatch = object : Runnable {
+        override fun run() {
+            if (Prefs.daemonOnBoot(this@KeeperService) && !Daemon.stopped && !Daemon.state().running) {
+                val ok = Daemon.start(this@KeeperService)
+                Log.i(TAG, "daemon watchdog: start -> $ok")
+            }
+            handler.postDelayed(this, 10_000)
+        }
+    }
+
     private val volumeRx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             if (i.action == VolumeLink.ACTION &&
@@ -117,6 +127,9 @@ class KeeperService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification())
         // Boot: Shizuku can come up after us, so retry a few times.
         for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
+        // Daemon watchdog: restart it if it dies.
+        handler.removeCallbacks(daemonWatch)
+        handler.post(daemonWatch)
         return START_STICKY
     }
 
@@ -189,7 +202,8 @@ class KeeperService : Service() {
         private const val NOTIF_ID = 1
 
         private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.lockSuspend(ctx) ||
-            Prefs.rotation(ctx) != RotationMode.AUTO || Prefs.rotationHint(ctx) || Prefs.volumeLink(ctx)
+            Prefs.rotation(ctx) != RotationMode.AUTO || Prefs.rotationHint(ctx) || Prefs.volumeLink(ctx) ||
+            Prefs.daemonOnBoot(ctx)
 
         fun sync(ctx: Context) {
             val i = Intent(ctx, KeeperService::class.java)

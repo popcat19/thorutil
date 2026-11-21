@@ -258,8 +258,8 @@ private fun MouseCard() {
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Start daemon with Shizuku", modifier = Modifier.weight(1f))
-                Switch(checked = onBoot, onCheckedChange = { onBoot = it; Prefs.setDaemonOnBoot(ctx, it) })
+                Text("Keep daemon running", modifier = Modifier.weight(1f))
+                Switch(checked = onBoot, onCheckedChange = { onBoot = it; Prefs.setDaemonOnBoot(ctx, it); KeeperService.sync(ctx.applicationContext) })
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Off on lockscreen", modifier = Modifier.weight(1f))
