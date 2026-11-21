@@ -49,6 +49,19 @@ object Priv {
         Result(-3, e.toString())
     }
 
+    // For operations (like signaling a root-started daemon) that shell Shizuku cannot do.
+    fun shRoot(cmd: String): Result {
+        if (!rootReady()) return Result(-1, "no root")
+        return try {
+            val r = exec(ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start())
+            if (r.code != 0) Log.w(TAG, "root '$cmd' -> ${r.code}: ${r.out}")
+            r
+        } catch (e: Throwable) {
+            Log.w(TAG, "root '$cmd' threw", e)
+            Result(-3, e.toString())
+        }
+    }
+
     private fun run(cmd: String): Result {
         val procs = mutableListOf<Pair<Backend, () -> Process>>()
         if (shizukuReady()) procs.add(Backend.SHIZUKU to { newShizukuProcess(arrayOf("sh", "-c", cmd)) })

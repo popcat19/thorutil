@@ -220,6 +220,9 @@ int main(int argc, char **argv) {
     fprintf(stderr, "fan: soak=%s %d junct zones, %d points, period %ld, tau %.0fs hyst %.1fC slew +%.1f/-%.1f %%/s guard %.0fC/%ds\n",
             soak_fd >= 0 ? SOAK_TYPE : "fallback", nzones, npoints, period, tau, hyst, slew_up, slew_down, guard_c, guard_s);
 
+    // Write initial state immediately so start/watchdog checks see our pid even if launched suspended.
+    write_state(0, 0.0, 0.0, 0);
+
     while (!quit) {
         int suspended = access(suspend_path, F_OK) == 0;
         if (suspended != was_suspended) {
@@ -228,7 +231,15 @@ int main(int argc, char **argv) {
             written = -1;
             over_ticks = 0;
         }
-        if (!suspended) {
+        if (suspended) {
+            if (tick % 2 == 0) {
+                double junct = hottest();
+                double raw = soak_fd >= 0 ? read_soak() : junct;
+                long cur = read_path(DUTY_PATH);
+                int pct = cur >= 0 ? (int)lround(cur * 100.0 / period) : 0;
+                write_state(pct, isnan(raw) ? 0.0 : raw, isnan(junct) ? 0.0 : junct, 0);
+            }
+        } else {
             double junct = hottest();
             double raw = soak_fd >= 0 ? read_soak() : junct;
             if (!isnan(raw)) {

@@ -72,7 +72,8 @@ object FanDaemon {
 
     fun state(): State {
         val y = yieldedMode
-        val r = Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] && kill -0 \$p 2>/dev/null && cat $STATE")
+        // /proc/$p works from shell even when the daemon was started by root at boot.
+        val r = Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ] && cat $STATE")
         if (r.code != 0) return State(false, 0, 0.0, 0, yieldedMode = y)
         val f = r.out.trim().split(" ")
         if (f.size < 4) return State(false, 0, 0.0, 0, yieldedMode = y)
@@ -112,13 +113,14 @@ object FanDaemon {
             yieldedMode = mode
             Log.i(TAG, "start yielded to Odin ${modeName(mode)}")
         }
+        if (state().running) return syncSuspend()
         val curve = Prefs.fanCurve(ctx)
         val args = "-c $curve -t ${Prefs.fanTau(ctx)} -h ${Prefs.fanHyst(ctx)} " +
             "-u ${Prefs.fanSlewUp(ctx)} -D ${Prefs.fanSlewDown(ctx)} " +
             "-g ${Prefs.fanGuardC(ctx)} -G ${Prefs.fanGuardS(ctx)}"
         val suspendCmd = if (screenOff || yieldedMode != null) "touch $SUSPEND; chmod 666 $SUSPEND;" else "rm -f $SUSPEND;"
         val cmd = "rm -f $STATE $LOG; $suspendCmd setsid ${binary(ctx)} $args </dev/null >$LOG 2>&1 & sleep 0.3; " +
-            "kill -0 ${pidExpr()} 2>/dev/null"
+            "p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ]"
         return Priv.sh(cmd).code == 0
     }
 
@@ -173,7 +175,11 @@ object FanDaemon {
         }
     }
 
-    private fun kill(): Boolean = Priv.sh("kill ${pidExpr()} 2>/dev/null; true").code == 0
+    private fun kill(): Boolean {
+        val cmd = "p=${pidExpr()}; [ -n \"\$p\" ] && kill \$p 2>/dev/null"
+        if (Priv.sh(cmd).code != 0 && Priv.rootReady()) Priv.shRoot(cmd)
+        return true
+    }
 
     fun restart(ctx: Context): Boolean {
         kill()
