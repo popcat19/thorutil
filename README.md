@@ -13,13 +13,16 @@ IME pin persistence, native mouse emulation and top display rotation control for
 - A = left click, X = right, R3 = middle, B = back, Y = forward; L3 moves the pointer between screens
 - Canvas workflow: hold R3 and move the left stick to middle-drag pan, right stick scrolls to zoom
 - D-pad, shoulders, and Start pass through to apps
+- **AYN combos** (accessibility service): AYN+L1/R1 focus top/bottom, AYN+Select swap focus, AYN+Start swap windows, AYN+B previous app, AYN+X mouse mode. Lone AYN tap still opens the AYN menu
+- Mouse mode starts on the last touched or focused screen
+- Toast and haptic feedback per action type: bip = on/top/auto, brt = off/bottom/fixed
 - Privilege via Shizuku, or root as a fallback; optional Magisk module starts the daemon at boot
 
 ## Requirements
 
 - AYN Thor (Android 13+, arm64)
 - Shizuku running, or Magisk root
-- Odin mapping's own gamepad-to-mouse mode turned off while the daemon runs (use Clear Odin shortcut), and Pathfinder's Select double-press set to Nothing
+- Odin mapping's own gamepad-to-mouse mode turned off while the daemon runs (use Clear Odin shortcut), Pathfinder uninstalled or its AYN and Select-double binds cleared
 - Display over other apps permission for rotation (the app grants it via Shizuku or root)
 
 ## Install
