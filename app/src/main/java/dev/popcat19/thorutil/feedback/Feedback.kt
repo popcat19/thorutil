@@ -22,6 +22,8 @@ enum class FeedbackType(val key: String, val label: String) {
     FOCUS("focus", "Pad focus"),
     WINDOWS("windows", "Window swap"),
     PREV_APP("prev_app", "Previous app"),
+    HOME("home", "Home on screen"),
+    RECENTS("recents", "Recents toggle"),
     ROTATION("rotation", "Rotation"),
 }
 

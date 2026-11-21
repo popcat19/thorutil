@@ -27,6 +27,10 @@ object AynActions {
         Priv.sh("${Daemon.binary(ctx)} -k")
     }
 
+    fun back(ctx: Context) {
+        Priv.sh("input -d ${padDisplay()} keyevent BACK")
+    }
+
     fun run(ctx: Context, a: AynAction) {
         Log.i(TAG, "run $a")
         when (a) {
@@ -37,12 +41,33 @@ object AynActions {
                 swapWindows()
                 Feedback.show(ctx, FeedbackType.WINDOWS, "Windows swapped", false, padDisplay())
             }
-            AynAction.PREV_APP -> {
-                val d = targetDisplay()
-                if (prevApp(d)) Feedback.show(ctx, FeedbackType.PREV_APP, "Previous app", false, d)
+            AynAction.PREV_APP_TOP -> {
+                if (prevApp(TOP)) Feedback.show(ctx, FeedbackType.PREV_APP, "Previous app", true, TOP)
+            }
+            AynAction.PREV_APP_BOTTOM -> {
+                if (prevApp(BOTTOM)) Feedback.show(ctx, FeedbackType.PREV_APP, "Previous app", false, BOTTOM)
+            }
+            AynAction.RECENTS_TOGGLE -> {
+                // APP_SWITCH while recents is up lands on home instead of closing; back closes it.
+                val visible = Priv.sh("dumpsys activity activities | grep -m1 'type=recents' | grep -c 'visible=true'").out.trim() == "1"
+                if (visible) {
+                    // Back from recents lands on home; reopen the app that was on top instead.
+                    if (!resume(TOP)) Priv.sh("input keyevent BACK")
+                    Feedback.show(ctx, FeedbackType.RECENTS, "Recents hidden", true, TOP)
+                } else {
+                    Priv.sh("input keyevent APP_SWITCH")
+                    Feedback.show(ctx, FeedbackType.RECENTS, "Recents", true, TOP)
+                }
             }
             AynAction.MOUSE -> Daemon.toggle()
         }
+    }
+
+    // Null display = lone Home, sent where pad keys go. Pad focus is left alone.
+    fun home(ctx: Context, display: Int?) {
+        val d = display ?: padDisplay()
+        Priv.sh("input -d $d keyevent HOME")
+        if (display != null) Feedback.show(ctx, FeedbackType.HOME, "Home: ${name(d)}", d == TOP, d)
     }
 
     // Gamepad focus moves the emu pointer too, so stick and buttons stay on one screen.
@@ -101,6 +126,12 @@ object AynActions {
         val bottom = all.firstOrNull { it.display == BOTTOM }
         if (top != null) Priv.sh("am display move-stack ${top.rootId} $BOTTOM")
         if (bottom != null) Priv.sh("am display move-stack ${bottom.rootId} $TOP")
+    }
+
+    private fun resume(display: Int): Boolean {
+        val t = tasks().firstOrNull { it.display == display } ?: return false
+        val comp = t.component.filter { it.isLetterOrDigit() || it in "._/$" }
+        return Priv.sh("am start --display $display -f 0x10200000 -n '$comp'").code == 0
     }
 
     fun prevApp(display: Int): Boolean {

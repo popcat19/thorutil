@@ -36,7 +36,9 @@
 - [x] `feat(app): add swap screens action`
 - [x] `feat(app): switch to previous app on focused screen`
 - [x] `feat(app): add default ayn binds`
-  - L1/R1 focus top/bottom, Select swap focus, Start swap windows, B previous app, X mouse mode.
+  - L1/R1 focus top/bottom, Select swap focus, Start swap windows, B recents toggle, X mouse mode.
+- [x] `feat(app): add home and back pad combos scoped per screen`
+  - Home+L1/R1 home top/bottom, Back+L1/R1 previous app top/bottom.
 - [x] `feat(app): add vibration and toast feedback for actions`
   - Per-type toggles. Bip = true, brt = false; invert switch.
 - [x] `feat(daemon): start mouse mode on focus.current`

@@ -56,6 +56,7 @@ struct bridge {
     int pad, mouse, pass, ayn_fd;
     int active;
     int ayn;
+    int back_held;
     unsigned char routed[KEY_CNT];
     int ax[ABS_CNT];
     long sel_at;
@@ -363,7 +364,10 @@ static void handle(struct bridge *b, const struct input_event *ev) {
 
     // AYN combos belong to the app's key filter, so hand the buttons to Android.
     if (ev->type == EV_KEY && ev->code < KEY_CNT) {
-        if (ev->value == 1) b->routed[ev->code] = b->ayn;
+        // Pad Back is a modifier in the app; route L1/R1 while held for Back+L1/R1.
+        if (ev->code == KEY_BACK && ev->value != 2) b->back_held = ev->value;
+        if (ev->value == 1)
+            b->routed[ev->code] = b->ayn || (b->back_held && (ev->code == BTN_TL || ev->code == BTN_TR));
         if (b->routed[ev->code]) {
             if (ev->value == 0) b->routed[ev->code] = 0;
             emit(b->pass, EV_KEY, ev->code, ev->value);

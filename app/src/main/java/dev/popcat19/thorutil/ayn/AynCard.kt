@@ -69,7 +69,12 @@ fun AynCard() {
                 })
             }
             AynBinds.DEFAULT.forEach { (code, a) -> Text("AYN + ${AynBinds.label(code)} → ${a.label}") }
+            AynBinds.HOME.forEach { (code, d) ->
+                Text("Home + ${AynBinds.label(code)} → Home on ${if (d == AynActions.BOTTOM) "bottom" else "top"}")
+            }
+            AynBinds.BACK.forEach { (code, a) -> Text("Back + ${AynBinds.label(code)} → ${a.label}") }
             Text("Lone AYN tap → AYN menu", style = MaterialTheme.typography.bodySmall)
+            Text("Lone Back → back on touched/focused screen", style = MaterialTheme.typography.bodySmall)
             Text("Clear other apps' AYN binds first.", style = MaterialTheme.typography.bodySmall)
         }
     }
