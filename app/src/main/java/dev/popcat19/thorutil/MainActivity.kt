@@ -104,6 +104,7 @@ private fun Screen(modifier: Modifier) {
         MouseCard()
         AynCard()
         FeedbackCard()
+        ExportCard()
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
