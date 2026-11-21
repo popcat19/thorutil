@@ -1,5 +1,6 @@
 package dev.popcat19.thorutil.ayn
 
+import dev.popcat19.thorutil.feedback.Feedback
 import android.accessibilityservice.AccessibilityService
 import android.os.Handler
 import android.os.HandlerThread
@@ -56,7 +57,12 @@ class AynKeyService : AccessibilityService() {
         worker = Handler(thread.looper)
     }
 
+    override fun onServiceConnected() {
+        Feedback.a11y = this
+    }
+
     override fun onDestroy() {
+        if (Feedback.a11y === this) Feedback.a11y = null
         thread.quitSafely()
         super.onDestroy()
     }

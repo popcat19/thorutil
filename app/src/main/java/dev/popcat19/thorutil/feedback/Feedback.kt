@@ -40,6 +40,10 @@ object Feedback {
     private var last: Pair<WindowManager, View>? = null
     private val hide = Runnable { dismiss() }
 
+    // Set by AynKeyService; its accessibility overlays survive HIDE_NON_SYSTEM_OVERLAY_WINDOWS
+    // (e.g. the Bluetooth settings page), which hides plain app overlays on every display.
+    @Volatile var a11y: Context? = null
+
     private fun sp(ctx: Context) = ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
 
     fun toastOn(ctx: Context, t: FeedbackType) = sp(ctx).getBoolean("fb_toast_${t.key}", true)
@@ -56,14 +60,18 @@ object Feedback {
     fun show(ctx: Context, t: FeedbackType, text: String, value: Boolean, display: Int = 0) {
         val app = ctx.applicationContext
         if (hapticOn(app, t)) buzz(app, hapticFor(app, value))
-        if (!toastOn(app, t) || !Settings.canDrawOverlays(app)) return
+        if (!toastOn(app, t)) return
         main.post { toast(app, text, display) }
     }
 
     private fun toast(app: Context, text: String, display: Int) {
         dismiss()
+        val svc = a11y
+        val base = svc ?: app.takeIf { Settings.canDrawOverlays(it) } ?: return
+        val type = if (svc != null) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         val d = app.getSystemService(DisplayManager::class.java).getDisplay(display) ?: return
-        val dc = app.createDisplayContext(d).createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
+        val dc = base.createDisplayContext(d).createWindowContext(type, null)
         val dp = dc.resources.displayMetrics.density
         val v = TextView(dc).apply {
             this.text = text
@@ -75,7 +83,7 @@ object Feedback {
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
         ).apply {
