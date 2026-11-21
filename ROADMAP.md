@@ -43,7 +43,7 @@
   - Per-type toggles. Bip = true, brt = false; invert switch.
 - [x] `feat(daemon): start mouse mode on focus.current`
   - Newer of last touch and last focus action; init from `screen_focus_lock`.
-- [ ] `feat(app): link bottom screen volume to media volume`
+- [x] `feat(app): link bottom screen volume to media volume`
 - [ ] `feat(app): add json config export and import`
   - Per-section checkboxes.
 - [ ] `build: sign release with local keystore`

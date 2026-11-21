@@ -17,6 +17,7 @@ IME pin persistence, native mouse emulation and top display rotation control for
 - **Pad combos**: Home+L1/R1 home on top/bottom, Back+L1/R1 previous app on top/bottom. Lone Back goes to the touched or focused screen, lone Home to the focused screen
 - Mouse mode starts on the last touched or focused screen
 - Toast and haptic feedback per action type: bip = on/top/auto, brt = off/bottom/fixed
+- **Bottom volume link**: optional, syncs the bottom speaker volume (`secondary_screen_volume_level`) to media volume. Works alongside the thorvolume app
 - Privilege via Shizuku, or root as a fallback; optional Magisk module starts the daemon at boot
 
 ## Requirements
