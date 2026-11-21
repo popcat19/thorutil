@@ -19,6 +19,8 @@ object Prefs {
     private const val ROTATION_BOTTOM = "rotation_bottom"
     private const val DENSITY_PRESETS = "density_presets"
     private const val SAVED_FORCE_LANDSCAPE = "saved_force_landscape"
+    private const val VOLUME_LINK = "volume_link"
+    private const val VOLUME_OFFSET = "volume_offset"
 
     private fun sp(ctx: Context): SharedPreferences =
         ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
@@ -53,6 +55,12 @@ object Prefs {
 
     fun savedForceLandscape(ctx: Context) = sp(ctx).getInt(SAVED_FORCE_LANDSCAPE, 0)
     fun setSavedForceLandscape(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_FORCE_LANDSCAPE, v).apply()
+
+    fun volumeLink(ctx: Context) = sp(ctx).getBoolean(VOLUME_LINK, false)
+    fun setVolumeLink(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean(VOLUME_LINK, on).apply()
+
+    fun volumeOffset(ctx: Context) = sp(ctx).getInt(VOLUME_OFFSET, 0)
+    fun setVolumeOffset(ctx: Context, v: Int) = sp(ctx).edit().putInt(VOLUME_OFFSET, v).apply()
 
     fun densityPresets(ctx: Context) = sp(ctx).getString(DENSITY_PRESETS, "[]") ?: "[]"
     fun setDensityPresets(ctx: Context, json: String) = sp(ctx).edit().putString(DENSITY_PRESETS, json).apply()

@@ -26,6 +26,7 @@ import android.util.Log
 // around screen off/on and at boot, so re-apply it. Lock: release the pad from mouse
 // mode while the keyguard is up so the gamepad can enter a PIN. Rotation: hosts the
 // orientation overlay, which only lives as long as this process, and the rotate hint.
+// Volume: mirror media volume to the bottom speaker setting.
 class KeeperService : Service() {
     private lateinit var thread: HandlerThread
     private lateinit var handler: Handler
@@ -49,6 +50,17 @@ class KeeperService : Service() {
         if (key == lastRot) return
         lastRot = key
         handler.post { Daemon.rotation(top, bottom) }
+    }
+
+    private val volumeSync = Runnable { VolumeLink.sync(this) }
+
+    private val volumeRx = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            if (i.action == VolumeLink.ACTION &&
+                i.getIntExtra(VolumeLink.EXTRA_STREAM, -1) != android.media.AudioManager.STREAM_MUSIC) return
+            handler.removeCallbacks(volumeSync)
+            handler.postDelayed(volumeSync, 80)
+        }
     }
 
     private val screenRx = object : BroadcastReceiver() {
@@ -84,6 +96,11 @@ class KeeperService : Service() {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)
         })
+        registerReceiver(volumeRx, IntentFilter().apply {
+            addAction(VolumeLink.ACTION)
+            addAction(android.media.AudioManager.ACTION_HEADSET_PLUG)
+            addAction(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        })
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -96,6 +113,7 @@ class KeeperService : Service() {
         Rotation.apply(this, rot)
         handler.post { Rotation.syncForceLandscape(this, rot) }
         syncHint()
+        handler.post { VolumeLink.sync(this, force = true) }
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification())
         // Boot: Shizuku can come up after us, so retry a few times.
         for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
@@ -160,6 +178,7 @@ class KeeperService : Service() {
         hint?.stop()
         observer?.let { contentResolver.unregisterContentObserver(it) }
         unregisterReceiver(screenRx)
+        unregisterReceiver(volumeRx)
         thread.quitSafely()
         super.onDestroy()
     }
@@ -170,7 +189,7 @@ class KeeperService : Service() {
         private const val NOTIF_ID = 1
 
         private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.lockSuspend(ctx) ||
-            Prefs.rotation(ctx) != RotationMode.AUTO || Prefs.rotationHint(ctx)
+            Prefs.rotation(ctx) != RotationMode.AUTO || Prefs.rotationHint(ctx) || Prefs.volumeLink(ctx)
 
         fun sync(ctx: Context) {
             val i = Intent(ctx, KeeperService::class.java)

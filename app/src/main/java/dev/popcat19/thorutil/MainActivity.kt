@@ -100,6 +100,7 @@ private fun Screen(modifier: Modifier) {
         PinCard()
         RotationCard()
         DensityCard()
+        VolumeCard()
         MouseCard()
         AynCard()
         FeedbackCard()
