@@ -21,17 +21,19 @@ import android.util.Log
 // Long-lived helper. Pin: BetterDSA and the stock dual-screen assistant reset ime_fixed
 // around screen off/on and at boot, so re-apply it. Lock: release the pad from mouse
 // mode while the keyguard is up so the gamepad can enter a PIN. Rotation: hosts the
-// orientation overlay, which only lives as long as this process.
+// orientation overlay, which only lives as long as this process, and the rotate hint.
 class KeeperService : Service() {
     private lateinit var thread: HandlerThread
     private lateinit var handler: Handler
     private var observer: ContentObserver? = null
+    private var hint: RotationHint? = null
     private val restore = Runnable { enforce("debounce") }
 
     private val screenRx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             val action = i.action ?: ""
             handler.post { syncLock(action) }
+            if (action == Intent.ACTION_SCREEN_OFF) hint?.stop() else syncHint()
             // The assistants write their reset shortly after these broadcasts.
             for (delay in longArrayOf(400, 1500, 4000)) handler.postDelayed({ enforce(action) }, delay)
         }
@@ -68,6 +70,7 @@ class KeeperService : Service() {
         val rot = Prefs.rotation(this)
         Rotation.apply(this, rot)
         handler.post { Rotation.syncForceLandscape(this, rot) }
+        syncHint()
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification())
         // Boot: Shizuku can come up after us, so retry a few times.
         for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
@@ -81,6 +84,20 @@ class KeeperService : Service() {
         if (want == have) return
         val ok = PinMode.apply(want)
         Log.i(TAG, "$why: $have -> $want ${if (ok) "ok" else "failed (${Priv.backend()})"}")
+    }
+
+    // Main thread.
+    private fun syncHint() {
+        if (!Prefs.rotationHint(this)) {
+            hint?.stop()
+            hint = null
+            return
+        }
+        val h = hint ?: RotationHint(this) { mode ->
+            Prefs.setRotation(this, mode)
+            sync(applicationContext)
+        }.also { hint = it }
+        h.start()
     }
 
     private fun syncLock(why: String) {
@@ -113,6 +130,7 @@ class KeeperService : Service() {
 
     override fun onDestroy() {
         Rotation.remove()
+        hint?.stop()
         observer?.let { contentResolver.unregisterContentObserver(it) }
         unregisterReceiver(screenRx)
         thread.quitSafely()
@@ -125,7 +143,7 @@ class KeeperService : Service() {
         private const val NOTIF_ID = 1
 
         private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.lockSuspend(ctx) ||
-            Prefs.rotation(ctx) != RotationMode.AUTO
+            Prefs.rotation(ctx) != RotationMode.AUTO || Prefs.rotationHint(ctx)
 
         fun sync(ctx: Context) {
             val i = Intent(ctx, KeeperService::class.java)

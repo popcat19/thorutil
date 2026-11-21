@@ -163,6 +163,7 @@ private fun RotationCard() {
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(Prefs.rotation(ctx)) }
     var overlay by remember { mutableStateOf(Rotation.canOverlay(ctx)) }
+    var hint by remember { mutableStateOf(Prefs.rotationHint(ctx)) }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -180,6 +181,14 @@ private fun RotationCard() {
                         shape = SegmentedButtonDefaults.itemShape(i, RotationMode.entries.size),
                     ) { Text(m.label) }
                 }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Rotate hint when held the other way", Modifier.weight(1f))
+                Switch(checked = hint, enabled = overlay, onCheckedChange = {
+                    hint = it
+                    Prefs.setRotationHint(ctx, it)
+                    KeeperService.sync(ctx.applicationContext)
+                })
             }
             if (!overlay) {
                 OutlinedButton(onClick = {

@@ -15,6 +15,7 @@ object Prefs {
     private const val ODIN_K1 = "odin_key_first"
     private const val ODIN_K2 = "odin_key_second"
     private const val ROTATION = "rotation_mode"
+    private const val ROTATION_HINT = "rotation_hint"
     private const val SAVED_FORCE_LANDSCAPE = "saved_force_landscape"
 
     private fun sp(ctx: Context): SharedPreferences =
@@ -41,6 +42,9 @@ object Prefs {
 
     fun rotation(ctx: Context) = RotationMode.of(sp(ctx).getInt(ROTATION, RotationMode.AUTO.id))
     fun setRotation(ctx: Context, m: RotationMode) = sp(ctx).edit().putInt(ROTATION, m.id).apply()
+
+    fun rotationHint(ctx: Context) = sp(ctx).getBoolean(ROTATION_HINT, false)
+    fun setRotationHint(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean(ROTATION_HINT, on).apply()
 
     fun savedForceLandscape(ctx: Context) = sp(ctx).getInt(SAVED_FORCE_LANDSCAPE, 0)
     fun setSavedForceLandscape(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_FORCE_LANDSCAPE, v).apply()
