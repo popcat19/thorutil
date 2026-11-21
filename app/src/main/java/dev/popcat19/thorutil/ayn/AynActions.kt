@@ -51,8 +51,8 @@ object AynActions {
                 if (prevApp(BOTTOM)) Feedback.show(ctx, FeedbackType.PREV_APP, "Previous app", false, BOTTOM)
             }
             AynAction.RECENTS_TOGGLE -> {
-                // APP_SWITCH while recents is up lands on home instead of closing; back closes it.
-                val visible = Priv.sh("dumpsys activity activities | grep -m1 'type=recents' | grep -c 'visible=true'").out.trim() == "1"
+                // Recents task keeps visible=true after closing; trust focus on the top display instead.
+                val visible = recentsShown()
                 if (visible) {
                     // Back from recents lands on home; reopen the app that was on top instead.
                     if (!resume(TOP)) Priv.sh("input keyevent BACK")
@@ -70,9 +70,10 @@ object AynActions {
         }
     }
 
-    // Null display = lone Home, sent where pad keys go. Pad focus is left alone.
+    // Null display = lone Home, sent to the touched-or-focused screen. Pad focus is left alone.
     fun home(ctx: Context, display: Int?) {
-        val d = display ?: padDisplay()
+        val d = display ?: targetDisplay()
+        Log.i(TAG, "home -> $d")
         Priv.sh("input -d $d keyevent HOME")
         if (display != null) Feedback.show(ctx, FeedbackType.HOME, "Home: ${name(d)}", d == TOP, d)
     }
@@ -133,6 +134,19 @@ object AynActions {
         val bottom = all.firstOrNull { it.display == BOTTOM }
         if (top != null) Priv.sh("am display move-stack ${top.rootId} $BOTTOM")
         if (bottom != null) Priv.sh("am display move-stack ${bottom.rootId} $TOP")
+    }
+
+    private fun recentsShown(): Boolean {
+        val focus = Priv.sh("dumpsys window displays | grep -E 'Display: mDisplayId=|mCurrentFocus='").out
+        var display = -1
+        for (line in focus.lines()) {
+            Regex("mDisplayId=(\\d+)").find(line)?.let { display = it.groupValues[1].toInt() }
+            if (display == TOP && line.contains("mCurrentFocus=")) {
+                Log.i(TAG, "recents check: ${line.trim()}")
+                return line.contains("RecentsActivity")
+            }
+        }
+        return false
     }
 
     private fun resume(display: Int): Boolean {
