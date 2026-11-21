@@ -24,6 +24,12 @@
 #define PAD_NAME "Xbox Wireless Controller"
 #define MOUSE_NAME "ThorUtil Mouse"
 #define PASS_NAME "ThorUtil Gamepad"
+#define AYN_NAME "gpio-keys"
+#define AYN_SCAN 194
+// The re-sent AYN tap keeps the gpio-keys name (so gpio-keys.kl applies) but a
+// distinct id, so the app's key filter lets it through.
+#define AYN_VENDOR 0x2020
+#define AYN_PRODUCT 0x7431
 #define AXIS_MAX 32767.0
 #define TICK_MS 8
 #define DOUBLE_MS 300
@@ -36,14 +42,20 @@ static double scroll_speed = 12.0;
 static const char *state_path = "/data/local/tmp/thorutil-mouse.state";
 static const char *lock_path = "/data/local/tmp/thorutil-mouse.lock";
 static const char *suspend_path = "/data/local/tmp/thorutil-mouse.suspend";
+static const char *cmd_path = "/data/local/tmp/thorutil-mouse.cmd";
+static const char *touch_path = "/data/local/tmp/thorutil-touch";
+// Top panel is fts_ts (display 0), bottom is fts_ts_3 (display 4).
+static const char *touch_names[2] = {"fts_ts", "fts_ts_3"};
 
 static volatile sig_atomic_t quit_flag;
 static volatile sig_atomic_t toggle_flag;
 static volatile sig_atomic_t suspend_flag;
 
 struct bridge {
-    int pad, mouse, pass;
+    int pad, mouse, pass, ayn_fd;
     int active;
+    int ayn;
+    unsigned char routed[KEY_CNT];
     int ax[ABS_CNT];
     long sel_at;
     int want_toggle;
@@ -51,13 +63,29 @@ struct bridge {
     double acc_x, acc_y, acc_w, acc_h;
     int held[5];
     int bottom;
+    // focus.current: the newer of the last touched screen and the last app focus action.
+    // Mouse mode starts on it.
+    int focus;
     pid_t mover;
+    int touch_fd[2];
 };
 
 static long now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+// The app turns these into toast + haptic feedback.
+static void notify(const char *event) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        int nul = open("/dev/null", O_RDWR);
+        if (nul >= 0) { dup2(nul, 1); dup2(nul, 2); }
+        execl("/system/bin/am", "am", "broadcast", "-a", "dev.popcat19.thorutil.EVENT", "-p",
+              "dev.popcat19.thorutil", "--es", "event", event, (char *)NULL);
+        _exit(127);
+    }
 }
 
 static void on_term(int s) { (void)s; quit_flag = 1; }
@@ -81,7 +109,8 @@ static void write_state(int active) {
     chmod(state_path, 0666);
 }
 
-static int find_pad(void) {
+// vendor 0 matches any id.
+static int find_dev(const char *want, int vendor) {
     DIR *d = opendir("/dev/input");
     if (!d) return -1;
     struct dirent *e;
@@ -92,8 +121,12 @@ static int find_pad(void) {
         snprintf(path, sizeof(path), "/dev/input/%s", e->d_name);
         int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (fd < 0) continue;
-        if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name) >= 0 && !strcmp(name, PAD_NAME)) found = fd;
-        else close(fd);
+        struct input_id id;
+        if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name) >= 0 && !strcmp(name, want) &&
+            (!vendor || (ioctl(fd, EVIOCGID, &id) >= 0 && id.vendor == vendor)))
+            found = fd;
+        else
+            close(fd);
     }
     closedir(d);
     return found;
@@ -151,6 +184,26 @@ static int make_pass(int pad) {
     return finish_dev(fd, PASS_NAME, id);
 }
 
+// Re-sends one AYN tap for the app; uinput devices take ~100 ms to be picked up.
+static int ayn_tap(void) {
+    int fd = open("/dev/uinput", O_WRONLY | O_CLOEXEC);
+    if (fd < 0) { perror("uinput"); return 1; }
+    ioctl(fd, UI_SET_EVBIT, EV_KEY);
+    ioctl(fd, UI_SET_KEYBIT, AYN_SCAN);
+    struct input_id id = {BUS_VIRTUAL, AYN_VENDOR, AYN_PRODUCT, 1};
+    if ((fd = finish_dev(fd, AYN_NAME, id)) < 0) return 1;
+    usleep(150000);
+    emit(fd, EV_KEY, AYN_SCAN, 1);
+    emit(fd, EV_SYN, SYN_REPORT, 0);
+    usleep(50000);
+    emit(fd, EV_KEY, AYN_SCAN, 0);
+    emit(fd, EV_SYN, SYN_REPORT, 0);
+    usleep(200000);
+    ioctl(fd, UI_DEV_DESTROY);
+    close(fd);
+    return 0;
+}
+
 static void destroy(int *fd) {
     if (*fd < 0) return;
     ioctl(*fd, UI_DEV_DESTROY);
@@ -195,6 +248,9 @@ static pid_t run_move(int bottom, int lazy) {
 
 static void reap(struct bridge *b) {
     if (b->mover > 0 && waitpid(b->mover, NULL, WNOHANG) == b->mover) b->mover = 0;
+    pid_t p;
+    while ((p = waitpid(-1, NULL, WNOHANG)) > 0)
+        if (p == b->mover) b->mover = 0;
 }
 
 static void move_pointer(struct bridge *b, int bottom, int wait, int lazy) {
@@ -228,11 +284,13 @@ static void set_active(struct bridge *b, int on) {
             return;
         }
         b->acc_x = b->acc_y = b->acc_w = b->acc_h = 0;
+        if (b->focus && !b->bottom) move_pointer(b, 1, 0, 0);
     } else {
         for (int i = 0; i < 5; i++)
             if (b->held[i]) emit(b->mouse, EV_KEY, mouse_btns[i], 0);
         if (b->mouse >= 0) emit(b->mouse, EV_SYN, SYN_REPORT, 0);
         memset(b->held, 0, sizeof(b->held));
+        memset(b->routed, 0, sizeof(b->routed));
         ioctl(b->pad, EVIOCGRAB, 0);
         if (b->bottom) move_pointer(b, 0, 1, 0);
         destroy(&b->mouse);
@@ -240,6 +298,7 @@ static void set_active(struct bridge *b, int on) {
     }
     b->active = on;
     write_state(on);
+    if (!b->suspended) notify(!on ? "mouse_off" : b->bottom ? "mouse_on_bottom" : "mouse_on");
     fprintf(stderr, "mouse mode %s\n", on ? "on" : "off");
 }
 
@@ -289,8 +348,20 @@ static void handle(struct bridge *b, const struct input_event *ev) {
     }
     if (!b->active) return;
 
+    // AYN combos belong to the app's key filter, so hand the buttons to Android.
+    if (ev->type == EV_KEY && ev->code < KEY_CNT) {
+        if (ev->value == 1) b->routed[ev->code] = b->ayn;
+        if (b->routed[ev->code]) {
+            if (ev->value == 0) b->routed[ev->code] = 0;
+            emit(b->pass, EV_KEY, ev->code, ev->value);
+            return;
+        }
+    }
     if (ev->type == EV_KEY && ev->code == BTN_THUMBL) {
-        if (ev->value == 1) move_pointer(b, !b->bottom, 0, 0);
+        if (ev->value == 1) {
+            move_pointer(b, !b->bottom, 0, 0);
+            notify(b->bottom ? "pointer_bottom" : "pointer_top");
+        }
         return;
     }
     if (ev->type == EV_KEY) {
@@ -307,34 +378,90 @@ static void handle(struct bridge *b, const struct input_event *ev) {
     emit(b->pass, ev->type, ev->code, ev->value);
 }
 
+// The app writes "top" or "bottom" here, then sends SIGUSR2.
+static void sync_cmd(struct bridge *b) {
+    char buf[16] = {0};
+    FILE *f = fopen(cmd_path, "r");
+    if (!f) return;
+    if (!fgets(buf, sizeof(buf), f)) buf[0] = 0;
+    fclose(f);
+    unlink(cmd_path);
+    if (!strncmp(buf, "top", 3)) b->focus = 0;
+    else if (!strncmp(buf, "bottom", 6)) b->focus = 1;
+    else return;
+    if (b->active && b->bottom != b->focus) move_pointer(b, b->focus, 0, 0);
+}
+
+// Passive (no grab). Touching a screen moves the pointer there only in mouse mode.
+static void read_touch(struct bridge *b, int i) {
+    struct input_event ev[32];
+    ssize_t n;
+    int down = 0;
+    while ((n = read(b->touch_fd[i], ev, sizeof(ev))) > 0)
+        for (ssize_t k = 0; k < n / (ssize_t)sizeof(*ev); k++)
+            if (ev[k].type == EV_KEY && ev[k].code == BTN_TOUCH && ev[k].value == 1) down = 1;
+    if (n < 0 && errno != EAGAIN) { close(b->touch_fd[i]); b->touch_fd[i] = -1; return; }
+    if (!down) return;
+    // "<display> <CLOCK_MONOTONIC ms>", compared against SystemClock.uptimeMillis().
+    FILE *f = fopen(touch_path, "w");
+    if (f) { fprintf(f, "%d %ld\n", i ? 4 : 0, now_ms()); fclose(f); chmod(touch_path, 0644); }
+    b->focus = i;
+    if (b->active && b->bottom != i) move_pointer(b, i, 0, 0);
+}
+
+static void read_ayn(struct bridge *b) {
+    struct input_event ev[16];
+    ssize_t n;
+    while ((n = read(b->ayn_fd, ev, sizeof(ev))) > 0)
+        for (ssize_t i = 0; i < n / (ssize_t)sizeof(*ev); i++)
+            if (ev[i].type == EV_KEY && ev[i].code == AYN_SCAN && ev[i].value != 2) b->ayn = ev[i].value;
+    if (n < 0 && errno != EAGAIN) { close(b->ayn_fd); b->ayn_fd = -1; b->ayn = 0; }
+}
+
 // Keyguard: release the pad so it can enter a PIN; the app signals SIGUSR2 after
 // creating or removing the suspend file, so repeated signals are harmless.
 static void sync_suspend(struct bridge *b) {
     int want = access(suspend_path, F_OK) == 0;
     if (want == b->suspended) return;
+    // Mark suspended first so the lockscreen switch stays silent.
+    b->suspended = 1;
     if (want) {
         b->resume_active = b->active;
         set_active(b, 0);
+    } else if (b->resume_active) {
+        set_active(b, 1);
     }
     b->suspended = want;
-    if (!want && b->resume_active) set_active(b, 1);
     fprintf(stderr, "%s\n", want ? "suspended" : "resumed");
+}
+
+// screen_focus_lock: 0 auto, 1 top, 2 bottom. Auto counts as top.
+static int read_focus_lock(void) {
+    FILE *p = popen("settings get system screen_focus_lock 2>/dev/null", "r");
+    char buf[16] = {0};
+    if (!p) return 0;
+    if (!fgets(buf, sizeof(buf), p)) buf[0] = 0;
+    pclose(p);
+    return atoi(buf) == 2;
 }
 
 static void usage(const char *argv0) {
     fprintf(stderr,
             "usage: %s [-a] [-d deadzone 0-0.9] [-p pointer px/s] [-s scroll detents/s] [-f state file]\n"
+            "       %s -k\n"
             "  -a  start in mouse mode\n"
+            "  -k  send one AYN key tap and exit\n"
             "  L3 in mouse mode moves the pointer between top and bottom screens\n"
             "  SIGUSR1 toggles mouse mode; double-press Select also toggles\n"
-            "  SIGUSR2 re-reads the suspend file (exists = suspended)\n",
-            argv0);
+            "  SIGUSR2 re-reads the suspend file (exists = suspended) and the cmd file (top|bottom focus)\n",
+            argv0, argv0);
 }
 
 int main(int argc, char **argv) {
     int start_active = 0, opt;
-    while ((opt = getopt(argc, argv, "ad:p:s:f:h")) != -1) {
+    while ((opt = getopt(argc, argv, "ad:p:s:f:hk")) != -1) {
         switch (opt) {
+        case 'k': return ayn_tap();
         case 'a': start_active = 1; break;
         case 'd': deadzone = atof(optarg); break;
         case 'p': pointer_speed = atof(optarg); break;
@@ -366,15 +493,17 @@ int main(int argc, char **argv) {
 
     struct bridge b;
     memset(&b, 0, sizeof(b));
-    b.pad = b.mouse = b.pass = -1;
+    b.pad = b.mouse = b.pass = b.ayn_fd = -1;
+    b.touch_fd[0] = b.touch_fd[1] = -1;
     write_state(0);
     // A killed daemon can leave the pointer on the bottom screen.
     move_pointer(&b, 0, 1, 1);
+    b.focus = read_focus_lock();
     sync_suspend(&b);
 
     while (!quit_flag) {
         if (b.pad < 0) {
-            b.pad = find_pad();
+            b.pad = find_dev(PAD_NAME, 0);
             if (b.pad < 0) { sleep(2); continue; }
             fprintf(stderr, "pad attached\n");
             memset(b.ax, 0, sizeof(b.ax));
@@ -382,12 +511,22 @@ int main(int argc, char **argv) {
             else if (start_active) b.resume_active = 1;
         }
 
-        int timeout = b.active ? TICK_MS : -1;
-        struct pollfd pfd = {.fd = b.pad, .events = POLLIN};
-        long t0 = now_ms();
-        int r = poll(&pfd, 1, timeout);
+        if (b.ayn_fd < 0) b.ayn_fd = find_dev(AYN_NAME, 0x0001);
+        for (int i = 0; i < 2; i++)
+            if (b.touch_fd[i] < 0) b.touch_fd[i] = find_dev(touch_names[i], 0);
 
-        if (suspend_flag) { suspend_flag = 0; sync_suspend(&b); }
+        int timeout = b.active ? TICK_MS : -1;
+        struct pollfd fds[4] = {{.fd = b.pad, .events = POLLIN}, {.fd = b.ayn_fd, .events = POLLIN},
+                                {.fd = b.touch_fd[0], .events = POLLIN}, {.fd = b.touch_fd[1], .events = POLLIN}};
+        struct pollfd pfd;
+        long t0 = now_ms();
+        int r = poll(fds, 4, timeout);
+        pfd = fds[0];
+        if (fds[1].revents) read_ayn(&b);
+        for (int i = 0; i < 2; i++)
+            if (fds[2 + i].revents) read_touch(&b, i);
+
+        if (suspend_flag) { suspend_flag = 0; sync_suspend(&b); sync_cmd(&b); }
         if (toggle_flag) { toggle_flag = 0; if (!b.suspended) set_active(&b, !b.active); }
 
         if (r > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) goto lost;
@@ -420,6 +559,7 @@ int main(int argc, char **argv) {
 
     set_active(&b, 0);
     if (b.pad >= 0) close(b.pad);
+    if (b.ayn_fd >= 0) close(b.ayn_fd);
     unlink(state_path);
     return 0;
 }
