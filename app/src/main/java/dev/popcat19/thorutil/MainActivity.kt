@@ -97,6 +97,7 @@ private fun Screen(modifier: Modifier) {
 
         PinCard()
         RotationCard()
+        DensityCard()
         MouseCard()
 
         Card(Modifier.fillMaxWidth()) {
