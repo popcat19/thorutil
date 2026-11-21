@@ -30,7 +30,8 @@ enum class RotationMode(val id: Int, val label: String, val orientation: Int) {
 }
 
 object Rotation {
-    private var view: View? = null
+    const val BOTTOM_DISPLAY = 4
+    private val views = mutableMapOf<Int, View>()
 
     private const val FORCE_LANDSCAPE = "force_landscape"
 
@@ -55,36 +56,43 @@ object Rotation {
         }
     }
 
-    // Main thread only.
+    // Main thread only. The bottom display follows when Prefs.rotationBottom is on.
     fun apply(ctx: Context, mode: RotationMode) {
         if (mode == RotationMode.AUTO || !canOverlay(ctx)) {
             remove()
             return
         }
-        val top = ctx.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY) ?: return
-        val wctx = ctx.createDisplayContext(top)
-            .createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
-        val wm = wctx.getSystemService(WindowManager::class.java)
+        hold(ctx, Display.DEFAULT_DISPLAY, mode)
+        if (Prefs.rotationBottom(ctx)) hold(ctx, BOTTOM_DISPLAY, mode) else release(BOTTOM_DISPLAY)
+    }
+
+    private fun hold(ctx: Context, id: Int, mode: RotationMode) {
+        val d = ctx.getSystemService(DisplayManager::class.java).getDisplay(id) ?: return
         val lp = WindowManager.LayoutParams(
             1, 1,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
         ).apply { screenOrientation = mode.orientation }
-        val v = view
+        val v = views[id]
         if (v != null) {
             v.context.getSystemService(WindowManager::class.java).updateViewLayout(v, lp)
-        } else {
-            view = View(wctx).also {
-                it.setBackgroundColor(Color.TRANSPARENT)
-                wm.addView(it, lp)
-            }
+            return
+        }
+        val wctx = ctx.createDisplayContext(d)
+            .createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
+        views[id] = View(wctx).also {
+            it.setBackgroundColor(Color.TRANSPARENT)
+            wctx.getSystemService(WindowManager::class.java).addView(it, lp)
         }
     }
 
-    fun remove() {
-        val v = view ?: return
+    private fun release(id: Int) {
+        val v = views.remove(id) ?: return
         runCatching { v.context.getSystemService(WindowManager::class.java).removeView(v) }
-        view = null
+    }
+
+    fun remove() {
+        views.keys.toList().forEach(::release)
     }
 }

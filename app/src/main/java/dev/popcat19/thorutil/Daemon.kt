@@ -10,6 +10,7 @@ object Daemon {
     private const val LOG = "/data/local/tmp/thorutil-mouse.log"
     private const val SUSPEND = "/data/local/tmp/thorutil-mouse.suspend"
     private const val CMD = "/data/local/tmp/thorutil-mouse.cmd"
+    private const val ROTATION = "/data/local/tmp/thorutil-rotation"
 
     data class State(val running: Boolean, val active: Boolean)
 
@@ -37,6 +38,11 @@ object Daemon {
     // Sets focus.current in the daemon; the pointer follows only while mouse mode is on.
     fun pointer(bottom: Boolean): Boolean =
         Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] || exit 1; echo ${if (bottom) "bottom" else "top"} > $CMD; chmod 666 $CMD; kill -USR2 \$p").code == 0
+
+    // Display rotations (Surface.ROTATION_*) so stick motion follows the held orientation.
+    // Written even when the daemon is down; it reads the file at start.
+    fun rotation(top: Int, bottom: Int): Boolean =
+        Priv.sh("echo $top $bottom > $ROTATION; chmod 666 $ROTATION; p=${pidExpr()}; [ -n \"\$p\" ] && kill -USR2 \$p; true").code == 0
 
     // Returns true only when the suspend state actually changed.
     fun setSuspended(on: Boolean): Boolean {

@@ -168,10 +168,11 @@ private fun RotationCard() {
     var mode by remember { mutableStateOf(Prefs.rotation(ctx)) }
     var overlay by remember { mutableStateOf(Rotation.canOverlay(ctx)) }
     var hint by remember { mutableStateOf(Prefs.rotationHint(ctx)) }
+    var bottom by remember { mutableStateOf(Prefs.rotationBottom(ctx)) }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Top display rotation", style = MaterialTheme.typography.titleMedium)
+            Text("Display rotation", style = MaterialTheme.typography.titleMedium)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 RotationMode.entries.forEachIndexed { i, m ->
                     SegmentedButton(
@@ -191,6 +192,14 @@ private fun RotationCard() {
                 Switch(checked = hint, enabled = overlay, onCheckedChange = {
                     hint = it
                     Prefs.setRotationHint(ctx, it)
+                    KeeperService.sync(ctx.applicationContext)
+                })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Bottom screen follows", Modifier.weight(1f))
+                Switch(checked = bottom, enabled = overlay, onCheckedChange = {
+                    bottom = it
+                    Prefs.setRotationBottom(ctx, it)
                     KeeperService.sync(ctx.applicationContext)
                 })
             }

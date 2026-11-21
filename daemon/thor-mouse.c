@@ -44,6 +44,7 @@ static const char *lock_path = "/data/local/tmp/thorutil-mouse.lock";
 static const char *suspend_path = "/data/local/tmp/thorutil-mouse.suspend";
 static const char *cmd_path = "/data/local/tmp/thorutil-mouse.cmd";
 static const char *touch_path = "/data/local/tmp/thorutil-touch";
+static const char *rotation_path = "/data/local/tmp/thorutil-rotation";
 // Top panel is fts_ts (display 0), bottom is fts_ts_3 (display 4).
 static const char *touch_names[2] = {"fts_ts", "fts_ts_3"};
 
@@ -68,6 +69,8 @@ struct bridge {
     int focus;
     pid_t mover;
     int touch_fd[2];
+    // ROTATION_0=0, ROTATION_90=1, ROTATION_180=2, ROTATION_270=3; [0]=top, [1]=bottom.
+    int rotation[2];
 };
 
 static long now_ms(void) {
@@ -235,7 +238,9 @@ static const char *move_script =
     "o=$(wm size -d 4); s=$(echo \"$o\" | sed -n 's/Override size: //p');"
     "[ -n \"$s\" ] || s=$(echo \"$o\" | sed -n 's/Physical size: //p');"
     "wm size ${s%x*}x$((${s#*x} - 1)) -d 4;"
-    "case \"$o\" in *Override*) wm size $s -d 4;; *) wm size reset -d 4;; esac";
+    "case \"$o\" in *Override*) wm size $s -d 4;; *) wm size reset -d 4;; esac;"
+    // Desktop mode pins the bottom display's rotation; "default" keeps the pin.
+    "wm fixed-to-user-rotation -d 4 $([ $1 = 1 ] && echo disabled || echo default)";
 
 static pid_t run_move(int bottom, int lazy) {
     pid_t pid = fork();
@@ -303,15 +308,20 @@ static void set_active(struct bridge *b, int on) {
 }
 
 // Radial deadzone, rescaled to 0..1, squared for fine control near center.
-static void stick(int rx, int ry, double *ox, double *oy) {
+// rot is display rotation (0/90/180/270 deg). Thor normal landscape=90.
+static void stick(int rx, int ry, int rot, double *ox, double *oy) {
     double x = rx / AXIS_MAX, y = ry / AXIS_MAX;
     double m = sqrt(x * x + y * y);
     if (m <= deadzone) { *ox = *oy = 0; return; }
     double r = (m - deadzone) / (1.0 - deadzone);
     if (r > 1.0) r = 1.0;
     double k = r * r / m;
-    *ox = x * k;
-    *oy = y * k;
+    x *= k; y *= k;
+    // Stick axes follow the device; pointer axes follow the display. Turn by the
+    // difference from the normal grip (rot 1), 90 deg per step.
+    int d = (5 - rot) % 4;
+    for (int i = 0; i < d; i++) { double t = x; x = -y; y = t; }
+    *ox = x; *oy = y;
 }
 
 static int take(double *acc) {
@@ -322,8 +332,9 @@ static int take(double *acc) {
 
 static void tick(struct bridge *b, double dt) {
     double px, py, sx, sy;
-    stick(b->ax[ABS_X], b->ax[ABS_Y], &px, &py);
-    stick(b->ax[ABS_Z], b->ax[ABS_RZ], &sx, &sy);
+    int rot = b->rotation[b->bottom];
+    stick(b->ax[ABS_X], b->ax[ABS_Y], rot, &px, &py);
+    stick(b->ax[ABS_Z], b->ax[ABS_RZ], rot, &sx, &sy);
     if (!px && !py && !sx && !sy) { b->acc_x = b->acc_y = b->acc_w = b->acc_h = 0; return; }
     b->acc_x += px * pointer_speed * dt;
     b->acc_y += py * pointer_speed * dt;
@@ -392,6 +403,19 @@ static void sync_cmd(struct bridge *b) {
     if (b->active && b->bottom != b->focus) move_pointer(b, b->focus, 0, 0);
 }
 
+static void sync_rotation(struct bridge *b) {
+    char buf[16] = {0};
+    FILE *f = fopen(rotation_path, "r");
+    if (!f) return;
+    if (!fgets(buf, sizeof(buf), f)) buf[0] = 0;
+    fclose(f);
+    // "<top> <bottom>" Surface.ROTATION_* values.
+    int t, m;
+    if (sscanf(buf, "%d %d", &t, &m) != 2 || t < 0 || t > 3 || m < 0 || m > 3) return;
+    b->rotation[0] = t;
+    b->rotation[1] = m;
+}
+
 // Passive (no grab). Touching a screen moves the pointer there only in mouse mode.
 static void read_touch(struct bridge *b, int i) {
     struct input_event ev[32];
@@ -453,7 +477,7 @@ static void usage(const char *argv0) {
             "  -k  send one AYN key tap and exit\n"
             "  L3 in mouse mode moves the pointer between top and bottom screens\n"
             "  SIGUSR1 toggles mouse mode; double-press Select also toggles\n"
-            "  SIGUSR2 re-reads the suspend file (exists = suspended) and the cmd file (top|bottom focus)\n",
+            "  SIGUSR2 re-reads the suspend file (exists = suspended), the cmd file (top|bottom focus), and the rotation file\n",
             argv0, argv0);
 }
 
@@ -499,6 +523,8 @@ int main(int argc, char **argv) {
     // A killed daemon can leave the pointer on the bottom screen.
     move_pointer(&b, 0, 1, 1);
     b.focus = read_focus_lock();
+    b.rotation[0] = b.rotation[1] = 1;
+    sync_rotation(&b);
     sync_suspend(&b);
 
     while (!quit_flag) {
@@ -526,7 +552,7 @@ int main(int argc, char **argv) {
         for (int i = 0; i < 2; i++)
             if (fds[2 + i].revents) read_touch(&b, i);
 
-        if (suspend_flag) { suspend_flag = 0; sync_suspend(&b); sync_cmd(&b); }
+        if (suspend_flag) { suspend_flag = 0; sync_suspend(&b); sync_cmd(&b); sync_rotation(&b); }
         if (toggle_flag) { toggle_flag = 0; if (!b.suspended) set_active(&b, !b.active); }
 
         if (r > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) goto lost;

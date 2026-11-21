@@ -14,6 +14,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.database.ContentObserver
+import android.hardware.display.DisplayManager
+import android.view.Display
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
@@ -30,6 +32,24 @@ class KeeperService : Service() {
     private var observer: ContentObserver? = null
     private var hint: RotationHint? = null
     private val restore = Runnable { enforce("debounce") }
+    private var lastRot = ""
+
+    // Stick motion in mouse mode follows each screen's rotation.
+    private val displays = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(id: Int) {}
+        override fun onDisplayRemoved(id: Int) {}
+        override fun onDisplayChanged(id: Int) = syncRotation()
+    }
+
+    private fun syncRotation() {
+        val dm = getSystemService(DisplayManager::class.java)
+        val top = dm.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: return
+        val bottom = dm.getDisplay(Rotation.BOTTOM_DISPLAY)?.rotation ?: return
+        val key = "$top $bottom"
+        if (key == lastRot) return
+        lastRot = key
+        handler.post { Daemon.rotation(top, bottom) }
+    }
 
     private val screenRx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -46,6 +66,9 @@ class KeeperService : Service() {
         thread = HandlerThread("pin-keeper").apply { start() }
         handler = Handler(thread.looper)
         startForeground(NOTIF_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+
+        getSystemService(DisplayManager::class.java).registerDisplayListener(displays, handler)
+        syncRotation()
 
         observer = object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean) {
@@ -133,6 +156,7 @@ class KeeperService : Service() {
 
     override fun onDestroy() {
         Rotation.remove()
+        getSystemService(DisplayManager::class.java).unregisterDisplayListener(displays)
         hint?.stop()
         observer?.let { contentResolver.unregisterContentObserver(it) }
         unregisterReceiver(screenRx)
