@@ -11,6 +11,7 @@ object Daemon {
     private const val SUSPEND = "/data/local/tmp/thorutil-mouse.suspend"
     private const val CMD = "/data/local/tmp/thorutil-mouse.cmd"
     private const val ROTATION = "/data/local/tmp/thorutil-rotation"
+    private const val TOUCH = "/data/local/tmp/thorutil-touch"
 
     data class State(val running: Boolean, val active: Boolean)
 
@@ -26,7 +27,8 @@ object Daemon {
 
     fun start(ctx: Context): Boolean {
         val args = "-d ${Prefs.deadzone(ctx)} -p ${Prefs.pointerSpeed(ctx)} -s ${Prefs.scrollSpeed(ctx)}"
-        val cmd = "setsid ${binary(ctx)} $args </dev/null >$LOG 2>&1 & sleep 0.3; " +
+        // A root-run daemon (root Shizuku or su) leaves root-owned files a shell-run one cannot write.
+        val cmd = "rm -f $LOG $TOUCH; setsid ${binary(ctx)} $args </dev/null >$LOG 2>&1 & sleep 0.3; " +
             "kill -0 ${pidExpr()} 2>/dev/null"
         return Priv.sh(cmd).code == 0
     }

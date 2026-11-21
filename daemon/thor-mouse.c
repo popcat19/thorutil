@@ -434,7 +434,7 @@ static void read_touch(struct bridge *b, int i) {
     if (!down) return;
     // "<display> <CLOCK_MONOTONIC ms>", compared against SystemClock.uptimeMillis().
     FILE *f = fopen(touch_path, "w");
-    if (f) { fprintf(f, "%d %ld\n", i ? 4 : 0, now_ms()); fclose(f); chmod(touch_path, 0644); }
+    if (f) { fprintf(f, "%d %ld\n", i ? 4 : 0, now_ms()); fclose(f); chmod(touch_path, 0666); }
     b->focus = i;
     if (b->active && b->bottom != i) move_pointer(b, i, 0, 0);
 }
@@ -502,13 +502,13 @@ int main(int argc, char **argv) {
     }
     if (deadzone < 0 || deadzone > 0.9) { usage(argv[0]); return 2; }
 
-    // Single instance: the Magisk module and the app can both try to launch this.
-    int lock = open(lock_path, O_RDONLY | O_CREAT | O_CLOEXEC, 0644);
+    // Single instance: boot start and the app can both try to launch this.
+    int lock = open(lock_path, O_RDONLY | O_CREAT | O_CLOEXEC, 0666);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0) {
         fprintf(stderr, "already running\n");
         return 1;
     }
-    chmod(lock_path, 0644);
+    chmod(lock_path, 0666);
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));

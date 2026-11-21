@@ -4,21 +4,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
+// Daemon start is handled by ThorApp once Shizuku is up; this covers root-only setups.
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         KeeperService.sync(context)
         if (intent.action == Intent.ACTION_BOOT_COMPLETED && Prefs.daemonOnBoot(context)) {
             val pending = goAsync()
             Thread {
-                // Shizuku may need a moment after boot; the Magisk module covers root-only boots.
-                repeat(10) {
-                    if (Priv.backend() != Priv.Backend.NONE) {
-                        if (!Daemon.state().running) Daemon.start(context)
-                        pending.finish()
-                        return@Thread
-                    }
-                    Thread.sleep(2000)
-                }
+                if (!Priv.shizukuReady() && Priv.rootReady() && !Daemon.state().running) Daemon.start(context)
                 pending.finish()
             }.start()
         }
