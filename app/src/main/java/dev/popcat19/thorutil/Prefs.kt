@@ -24,8 +24,8 @@ object Prefs {
     fun setDaemonOnBoot(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(DAEMON_BOOT, v).apply()
 
     fun deadzone(ctx: Context) = sp(ctx).getFloat(DEADZONE, 0.15f)
-    fun pointerSpeed(ctx: Context) = sp(ctx).getFloat(POINTER, 1400f)
-    fun scrollSpeed(ctx: Context) = sp(ctx).getFloat(SCROLL, 18f)
+    fun pointerSpeed(ctx: Context) = sp(ctx).getFloat(POINTER, 1000f)
+    fun scrollSpeed(ctx: Context) = sp(ctx).getFloat(SCROLL, 12f)
     fun setTuning(ctx: Context, dz: Float, ptr: Float, scr: Float) =
         sp(ctx).edit().putFloat(DEADZONE, dz).putFloat(POINTER, ptr).putFloat(SCROLL, scr).apply()
 }
