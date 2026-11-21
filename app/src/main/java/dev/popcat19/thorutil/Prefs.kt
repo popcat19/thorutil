@@ -14,6 +14,8 @@ object Prefs {
     private const val LOCK_SUSPEND = "lock_suspend"
     private const val ODIN_K1 = "odin_key_first"
     private const val ODIN_K2 = "odin_key_second"
+    private const val ROTATION = "rotation_mode"
+    private const val SAVED_FORCE_LANDSCAPE = "saved_force_landscape"
 
     private fun sp(ctx: Context): SharedPreferences =
         ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
@@ -36,6 +38,12 @@ object Prefs {
     }
     fun setOdinKeys(ctx: Context, a: String, b: String) =
         sp(ctx).edit().putString(ODIN_K1, a).putString(ODIN_K2, b).apply()
+
+    fun rotation(ctx: Context) = RotationMode.of(sp(ctx).getInt(ROTATION, RotationMode.AUTO.id))
+    fun setRotation(ctx: Context, m: RotationMode) = sp(ctx).edit().putInt(ROTATION, m.id).apply()
+
+    fun savedForceLandscape(ctx: Context) = sp(ctx).getInt(SAVED_FORCE_LANDSCAPE, 0)
+    fun setSavedForceLandscape(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_FORCE_LANDSCAPE, v).apply()
 
     fun deadzone(ctx: Context) = sp(ctx).getFloat(DEADZONE, 0.15f)
     fun pointerSpeed(ctx: Context) = sp(ctx).getFloat(POINTER, 1000f)

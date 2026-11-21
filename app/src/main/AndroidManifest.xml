@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
         android:allowBackup="false"
         android:extractNativeLibs="true"
@@ -43,7 +44,7 @@
             android:exported="false">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Restores IME pin and suspends mouse emulation on the lockscreen" />
+                android:value="Restores IME pin, suspends mouse emulation on the lockscreen, holds top display rotation" />
         </service>
         <service
             android:name=".tiles.ImePinTileService"
@@ -60,6 +61,16 @@
             android:exported="true"
             android:icon="@drawable/ic_mouse"
             android:label="Mouse Emu"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".tiles.RotationTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_rotation"
+            android:label="Top Rotation"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />

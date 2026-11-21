@@ -20,7 +20,8 @@ import android.util.Log
 
 // Long-lived helper. Pin: BetterDSA and the stock dual-screen assistant reset ime_fixed
 // around screen off/on and at boot, so re-apply it. Lock: release the pad from mouse
-// mode while the keyguard is up so the gamepad can enter a PIN.
+// mode while the keyguard is up so the gamepad can enter a PIN. Rotation: hosts the
+// orientation overlay, which only lives as long as this process.
 class KeeperService : Service() {
     private lateinit var thread: HandlerThread
     private lateinit var handler: Handler
@@ -64,6 +65,10 @@ class KeeperService : Service() {
             return START_NOT_STICKY
         }
         handler.post { enforce("start"); syncLock("start") }
+        val rot = Prefs.rotation(this)
+        Rotation.apply(this, rot)
+        handler.post { Rotation.syncForceLandscape(this, rot) }
+        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification())
         // Boot: Shizuku can come up after us, so retry a few times.
         for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
         return START_STICKY
@@ -96,6 +101,7 @@ class KeeperService : Service() {
                 listOfNotNull(
                     if (Prefs.pinManaged(this)) "IME pin: ${Prefs.pinMode(this).label}" else null,
                     if (Prefs.lockSuspend(this)) "Mouse off on lockscreen" else null,
+                    Prefs.rotation(this).takeIf { it != RotationMode.AUTO }?.let { "Top: ${it.label}" },
                 ).joinToString(" · ")
             )
             .setContentIntent(open)
@@ -106,6 +112,7 @@ class KeeperService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        Rotation.remove()
         observer?.let { contentResolver.unregisterContentObserver(it) }
         unregisterReceiver(screenRx)
         thread.quitSafely()
@@ -117,10 +124,15 @@ class KeeperService : Service() {
         private const val CHANNEL = "pin_keeper"
         private const val NOTIF_ID = 1
 
-        private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.lockSuspend(ctx)
+        private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.lockSuspend(ctx) ||
+            Prefs.rotation(ctx) != RotationMode.AUTO
 
         fun sync(ctx: Context) {
             val i = Intent(ctx, KeeperService::class.java)
+            val app = ctx.applicationContext
+            if (Prefs.rotation(app) == RotationMode.AUTO) {
+                Thread { Rotation.syncForceLandscape(app, RotationMode.AUTO) }.start()
+            }
             if (needed(ctx)) ctx.startForegroundService(i) else ctx.stopService(i)
         }
     }

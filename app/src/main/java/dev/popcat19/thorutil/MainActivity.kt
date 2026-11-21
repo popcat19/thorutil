@@ -97,6 +97,7 @@ private fun Screen(modifier: Modifier) {
         }
 
         PinCard()
+        RotationCard()
         MouseCard()
 
         Card(Modifier.fillMaxWidth()) {
@@ -152,6 +153,42 @@ private fun PinCard() {
                 }
             }
             Text("Current system state: ${live.label}", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun RotationCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var mode by remember { mutableStateOf(Prefs.rotation(ctx)) }
+    var overlay by remember { mutableStateOf(Rotation.canOverlay(ctx)) }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Top display rotation", style = MaterialTheme.typography.titleMedium)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                RotationMode.entries.forEachIndexed { i, m ->
+                    SegmentedButton(
+                        selected = mode == m,
+                        enabled = overlay,
+                        onClick = {
+                            mode = m
+                            Prefs.setRotation(ctx, m)
+                            KeeperService.sync(ctx.applicationContext)
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(i, RotationMode.entries.size),
+                    ) { Text(m.label) }
+                }
+            }
+            if (!overlay) {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { Rotation.grantOverlay(ctx) }
+                        overlay = Rotation.canOverlay(ctx)
+                    }
+                }) { Text("Grant overlay") }
+            }
         }
     }
 }
