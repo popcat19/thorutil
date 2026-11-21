@@ -4,7 +4,7 @@
 
 - [x] `feat(daemon): lower default speeds to 1000 px/s and 12 detents/s`
 - [x] `feat(daemon): remap mouse buttons for xbox layout`
-  - A → left, X → right, R3 → middle, B → back, Y → forward. L3 passes through.
+  - A → left, X → right, R3 → middle, B → back, Y → forward. L3 moves the pointer between screens.
   - Middle-drag pan: R3 + left stick.
 - [x] `feat(daemon): toggle mouse mode on double-press select`
   - 300 ms window. Replaces Select+Start hold.

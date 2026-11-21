@@ -10,7 +10,7 @@ IME pin persistence, native mouse emulation and top display rotation control for
 - **Top display rotation**: Auto, Portrait or Landscape via tile or app, plus an optional rotate button when the device is held the other way. Portrait works by holding a 1×1 overlay; it turns off Odin's Force Landscape while active and restores it on Auto
 - **Odin shortcut clear**: one button empties Odin's gamepad-to-mouse shortcut so it can't fight the daemon, with restore
 - Toggle mouse via QS tile or double-press Select
-- A = left click, X = right, R3 = middle, B = back, Y = forward; L3 passes through
+- A = left click, X = right, R3 = middle, B = back, Y = forward; L3 moves the pointer between screens
 - Canvas workflow: hold R3 and move the left stick to middle-drag pan, right stick scrolls to zoom
 - D-pad, shoulders, and Start pass through to apps
 - Privilege via Shizuku, or root as a fallback; optional Magisk module starts the daemon at boot

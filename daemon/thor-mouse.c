@@ -17,6 +17,7 @@
 #include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -49,6 +50,8 @@ struct bridge {
     int suspended, resume_active;
     double acc_x, acc_y, acc_w, acc_h;
     int held[5];
+    int bottom;
+    pid_t mover;
 };
 
 static long now_ms(void) {
@@ -169,6 +172,46 @@ static int mouse_btn_index(int code) {
 
 static const int mouse_btns[5] = {BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA};
 
+// Android puts the mouse pointer on display 0 unless desktop mode on external
+// displays is on; the choice is only re-read when viewports change, so nudge
+// the bottom panel size by 1 px and restore it (keeps any user size override).
+static const char *move_script =
+    "k=force_desktop_mode_on_external_displays;"
+    "[ \"$2\" = lazy ] && [ \"$(settings get global $k)\" != 1 ] && exit 0;"
+    "settings put global $k $1 || exit 1;"
+    "o=$(wm size -d 4); s=$(echo \"$o\" | sed -n 's/Override size: //p');"
+    "[ -n \"$s\" ] || s=$(echo \"$o\" | sed -n 's/Physical size: //p');"
+    "wm size ${s%x*}x$((${s#*x} - 1)) -d 4;"
+    "case \"$o\" in *Override*) wm size $s -d 4;; *) wm size reset -d 4;; esac";
+
+static pid_t run_move(int bottom, int lazy) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl("/system/bin/sh", "sh", "-c", move_script, "sh", bottom ? "1" : "0", lazy ? "lazy" : "", (char *)NULL);
+        _exit(127);
+    }
+    return pid;
+}
+
+static void reap(struct bridge *b) {
+    if (b->mover > 0 && waitpid(b->mover, NULL, WNOHANG) == b->mover) b->mover = 0;
+}
+
+static void move_pointer(struct bridge *b, int bottom, int wait, int lazy) {
+    reap(b);
+    if (b->mover > 0) {
+        if (!wait) return;
+        waitpid(b->mover, NULL, 0);
+        b->mover = 0;
+    }
+    pid_t pid = run_move(bottom, lazy);
+    if (pid < 0) { perror("fork"); return; }
+    b->bottom = bottom;
+    if (wait) waitpid(pid, NULL, 0);
+    else b->mover = pid;
+    fprintf(stderr, "pointer on %s\n", bottom ? "bottom" : "top");
+}
+
 static int consumed_abs(int code) {
     return code == ABS_X || code == ABS_Y || code == ABS_Z || code == ABS_RZ;
 }
@@ -191,6 +234,7 @@ static void set_active(struct bridge *b, int on) {
         if (b->mouse >= 0) emit(b->mouse, EV_SYN, SYN_REPORT, 0);
         memset(b->held, 0, sizeof(b->held));
         ioctl(b->pad, EVIOCGRAB, 0);
+        if (b->bottom) move_pointer(b, 0, 1, 0);
         destroy(&b->mouse);
         destroy(&b->pass);
     }
@@ -245,6 +289,10 @@ static void handle(struct bridge *b, const struct input_event *ev) {
     }
     if (!b->active) return;
 
+    if (ev->type == EV_KEY && ev->code == BTN_THUMBL) {
+        if (ev->value == 1) move_pointer(b, !b->bottom, 0, 0);
+        return;
+    }
     if (ev->type == EV_KEY) {
         int i = mouse_btn_index(ev->code);
         if (i >= 0) {
@@ -277,6 +325,7 @@ static void usage(const char *argv0) {
     fprintf(stderr,
             "usage: %s [-a] [-d deadzone 0-0.9] [-p pointer px/s] [-s scroll detents/s] [-f state file]\n"
             "  -a  start in mouse mode\n"
+            "  L3 in mouse mode moves the pointer between top and bottom screens\n"
             "  SIGUSR1 toggles mouse mode; double-press Select also toggles\n"
             "  SIGUSR2 re-reads the suspend file (exists = suspended)\n",
             argv0);
@@ -319,6 +368,8 @@ int main(int argc, char **argv) {
     memset(&b, 0, sizeof(b));
     b.pad = b.mouse = b.pass = -1;
     write_state(0);
+    // A killed daemon can leave the pointer on the bottom screen.
+    move_pointer(&b, 0, 1, 1);
     sync_suspend(&b);
 
     while (!quit_flag) {
@@ -348,6 +399,7 @@ int main(int argc, char **argv) {
             if (n < 0 && errno != EAGAIN) goto lost;
         }
 
+        reap(&b);
         if (b.want_toggle) { b.want_toggle = 0; if (!b.suspended) set_active(&b, !b.active); }
 
         if (b.active) {
