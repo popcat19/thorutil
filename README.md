@@ -39,6 +39,10 @@ nix develop
 
 Outputs: `app/build/outputs/apk/release/app-release.apk` and `app/build/outputs/magisk/thorutil-magisk.zip`.
 
+## Roadmap
+
+Planned work and commit goals: [ROADMAP.md](ROADMAP.md).
+
 ## License
 
 Apache-2.0
