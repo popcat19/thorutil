@@ -234,13 +234,15 @@ static const int mouse_btns[5] = {BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN
 static const char *move_script =
     "k=force_desktop_mode_on_external_displays;"
     "[ \"$2\" = lazy ] && [ \"$(settings get global $k)\" != 1 ] && exit 0;"
+    // Desktop mode pins the bottom display's rotation; unpin before it applies so
+    // a held portrait doesn't flip to landscape and back. "default" restores it.
+    "[ $1 = 1 ] && wm fixed-to-user-rotation -d 4 disabled;"
     "settings put global $k $1 || exit 1;"
     "o=$(wm size -d 4); s=$(echo \"$o\" | sed -n 's/Override size: //p');"
     "[ -n \"$s\" ] || s=$(echo \"$o\" | sed -n 's/Physical size: //p');"
     "wm size ${s%x*}x$((${s#*x} - 1)) -d 4;"
     "case \"$o\" in *Override*) wm size $s -d 4;; *) wm size reset -d 4;; esac;"
-    // Desktop mode pins the bottom display's rotation; "default" keeps the pin.
-    "wm fixed-to-user-rotation -d 4 $([ $1 = 1 ] && echo disabled || echo default)";
+    "[ $1 = 1 ] || wm fixed-to-user-rotation -d 4 default";
 
 static pid_t run_move(int bottom, int lazy) {
     pid_t pid = fork();
