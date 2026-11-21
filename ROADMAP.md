@@ -27,11 +27,21 @@
 
 ## v0.4.0
 
-- [ ] `feat(daemon): use ayn button as meta modifier`
-  - `gpio-keys` code 194.
+- [ ] `feat(app): add accessibility key filter for ayn combos`
+  - AYN = scan 194 on `gpio-keys`; framework turns it into `action.tcc.button.key.event` (AYN menu).
+  - Lone tap re-sent via uinput `gpio-keys` clone (shell uid, Shizuku ok); filter skips own device by vendor id.
+  - Pathfinder AYN binds must be cleared manually.
+- [ ] `feat(app): add focus actions`
+  - `screen_focus_lock` 0=auto 1=top 2=bottom; ported from Pathfinder.
 - [ ] `feat(app): add swap screens action`
-- [ ] `feat(app): link bottom screen volume to media volume`
 - [ ] `feat(app): switch to previous app on focused screen`
+- [ ] `feat(app): add default ayn binds`
+  - L1/R1 focus top/bottom, Select swap focus, Start swap windows, B previous app, X mouse mode.
+- [ ] `feat(app): add vibration and toast feedback for actions`
+  - Per-type toggles, haptic type selectable.
+- [ ] `feat(app): link bottom screen volume to media volume`
+- [ ] `feat(app): add json config export and import`
+  - Per-section checkboxes.
 - [ ] `build: sign release with local keystore`
   - Secrets via `local.properties` or env.
 - [ ] `chore: bump version to 0.4.0`
@@ -40,8 +50,6 @@
 
 - [ ] `feat(app): add custom cursor from png, cur, svg or jxl`
   - Root overlay via Magisk module, needs restart per change.
-- [ ] `feat(app): add json config export and import`
-  - Per-section checkboxes.
 
 ## v0.5.0
 
