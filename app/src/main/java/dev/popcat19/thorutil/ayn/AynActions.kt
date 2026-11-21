@@ -28,7 +28,9 @@ object AynActions {
     }
 
     fun back(ctx: Context) {
-        Priv.sh("input -d ${padDisplay()} keyevent BACK")
+        val d = targetDisplay()
+        Log.i(TAG, "back -> $d")
+        Priv.sh("input -d $d keyevent BACK")
     }
 
     fun run(ctx: Context, a: AynAction) {

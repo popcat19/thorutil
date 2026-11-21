@@ -14,7 +14,7 @@ IME pin persistence, native mouse emulation and top display rotation control for
 - Canvas workflow: hold R3 and move the left stick to middle-drag pan, right stick scrolls to zoom
 - D-pad, shoulders, and Start pass through to apps
 - **AYN combos** (accessibility service): AYN+L1/R1 focus top/bottom, AYN+Select swap focus, AYN+Start swap windows, AYN+B toggle recents (top), AYN+X mouse mode. Lone AYN tap still opens the AYN menu
-- **Pad combos**: Home+L1/R1 home on top/bottom, Back+L1/R1 previous app on top/bottom. Lone Home/Back go to the touched or focused screen
+- **Pad combos**: Home+L1/R1 home on top/bottom, Back+L1/R1 previous app on top/bottom. Lone Back goes to the touched or focused screen, lone Home to the focused screen
 - Mouse mode starts on the last touched or focused screen
 - Toast and haptic feedback per action type: bip = on/top/auto, brt = off/bottom/fixed
 - Privilege via Shizuku, or root as a fallback; optional Magisk module starts the daemon at boot
