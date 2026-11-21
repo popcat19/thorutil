@@ -16,6 +16,7 @@ object Prefs {
     private const val ODIN_K2 = "odin_key_second"
     private const val ROTATION = "rotation_mode"
     private const val ROTATION_HINT = "rotation_hint"
+    private const val DENSITY_PRESETS = "density_presets"
     private const val SAVED_FORCE_LANDSCAPE = "saved_force_landscape"
 
     private fun sp(ctx: Context): SharedPreferences =
@@ -49,7 +50,10 @@ object Prefs {
     fun savedForceLandscape(ctx: Context) = sp(ctx).getInt(SAVED_FORCE_LANDSCAPE, 0)
     fun setSavedForceLandscape(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_FORCE_LANDSCAPE, v).apply()
 
-    fun deadzone(ctx: Context) = sp(ctx).getFloat(DEADZONE, 0.15f)
+    fun densityPresets(ctx: Context) = sp(ctx).getString(DENSITY_PRESETS, "[]") ?: "[]"
+    fun setDensityPresets(ctx: Context, json: String) = sp(ctx).edit().putString(DENSITY_PRESETS, json).apply()
+
+    fun deadzone(ctx: Context) = sp(ctx).getFloat(DEADZONE, 0.02f)
     fun pointerSpeed(ctx: Context) = sp(ctx).getFloat(POINTER, 1000f)
     fun scrollSpeed(ctx: Context) = sp(ctx).getFloat(SCROLL, 12f)
     fun setTuning(ctx: Context, dz: Float, ptr: Float, scr: Float) =

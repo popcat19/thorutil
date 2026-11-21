@@ -29,7 +29,7 @@
 #define NBITS(x) ((((x) - 1) / (8 * sizeof(long))) + 1)
 #define TEST_BIT(b, a) (((a)[(b) / (8 * sizeof(long))] >> ((b) % (8 * sizeof(long)))) & 1)
 
-static double deadzone = 0.15;
+static double deadzone = 0.02;
 static double pointer_speed = 1000.0;
 static double scroll_speed = 12.0;
 static const char *state_path = "/data/local/tmp/thorutil-mouse.state";
