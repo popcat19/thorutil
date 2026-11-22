@@ -30,13 +30,16 @@ object Prefs {
     private const val FAN_GUARD_C = "fan_guard_c"
     private const val FAN_GUARD_S = "fan_guard_s"
     private const val SAVED_FAN_MODE = "saved_fan_mode"
+    private const val SAVED_FAN_SPEED = "saved_fan_speed"
+    private const val LAST_NATIVE_DIR = "last_native_dir"
 
-    // Board soak (xo-therm) curve: idle ~45 °C -> 20%, sustained load ~61 °C -> 70-80%.
-    const val FAN_CURVE_DEFAULT = "46:20,52:35,58:60,64:100"
-    const val FAN_TAU_DEFAULT = 10f
-    const val FAN_HYST_DEFAULT = 2f
-    const val FAN_SLEW_UP_DEFAULT = 2f
-    const val FAN_SLEW_DOWN_DEFAULT = 1f
+    // Board soak (xo-therm) curve: flat quiet 20% through idle/light loads (<=48 °C),
+    // progressive ramp through medium (54-60 °C) and heavy gaming (66-72 °C).
+    const val FAN_CURVE_DEFAULT = "48:20,54:32,60:50,66:75,72:100"
+    const val FAN_TAU_DEFAULT = 15f
+    const val FAN_HYST_DEFAULT = 2.5f
+    const val FAN_SLEW_UP_DEFAULT = 1.5f
+    const val FAN_SLEW_DOWN_DEFAULT = 0.5f
     const val FAN_GUARD_C_DEFAULT = 98f
     const val FAN_GUARD_S_DEFAULT = 20
 
@@ -116,4 +119,12 @@ object Prefs {
     // Odin fan_mode before ThorUtil switched to custom; 4 = Smart.
     fun savedFanMode(ctx: Context) = sp(ctx).getInt(SAVED_FAN_MODE, 4)
     fun setSavedFanMode(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_FAN_MODE, v).apply()
+
+    // Odin fan_speed before ThorUtil set -1 to suppress Odin custom duty writes.
+    fun savedFanSpeed(ctx: Context) = sp(ctx).getInt(SAVED_FAN_SPEED, 35)
+    fun setSavedFanSpeed(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_FAN_SPEED, v).apply()
+
+    // Tracks nativeLibraryDir so daemons restart onto the new binary after an APK upgrade.
+    fun lastNativeDir(ctx: Context): String = sp(ctx).getString(LAST_NATIVE_DIR, "") ?: ""
+    fun setLastNativeDir(ctx: Context, v: String) = sp(ctx).edit().putString(LAST_NATIVE_DIR, v).apply()
 }

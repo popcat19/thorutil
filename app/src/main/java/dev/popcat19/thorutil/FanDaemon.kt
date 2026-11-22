@@ -23,6 +23,10 @@ object FanDaemon {
     private const val TAG = "ThorUtil/Fan"
 
     const val MODE_KEY = "fan_mode"
+    const val SPEED_KEY = "fan_speed"
+    // OdinSettings s1.b$d.k(6) returns fan_speed unchanged when < 0, and s1.b$c.r() skips the
+    // duty write when <= -1, preventing 67% duty jumps on wake/app-switch while keeping state=1.
+    private const val SPEED_NOOP = -1
     const val MODE_OFF = 0
     const val MODE_QUIET = 1
     const val MODE_SMART = 4
@@ -70,6 +74,22 @@ object FanDaemon {
     fun currentMode(ctx: Context): Int =
         Settings.System.getInt(ctx.contentResolver, MODE_KEY, MODE_SMART)
 
+    private fun currentSpeed(ctx: Context): Int =
+        Settings.System.getInt(ctx.contentResolver, SPEED_KEY, 35)
+
+    private fun suppressOdinDuty(ctx: Context) {
+        val cur = currentSpeed(ctx)
+        if (cur == SPEED_NOOP) return
+        if (cur >= 0) Prefs.setSavedFanSpeed(ctx, cur)
+        Priv.sh("settings put system $SPEED_KEY $SPEED_NOOP")
+    }
+
+    private fun restoreOdinSpeed(ctx: Context) {
+        if (currentSpeed(ctx) == SPEED_NOOP) {
+            Priv.sh("settings put system $SPEED_KEY ${Prefs.savedFanSpeed(ctx)}")
+        }
+    }
+
     fun state(): State {
         val y = yieldedMode
         // /proc/$p works from shell even when the daemon was started by root at boot.
@@ -105,6 +125,8 @@ object FanDaemon {
         val mode = currentMode(ctx)
         if (forceTakeover || mode == MODE_SMART || mode == MODE_CUSTOM) {
             yieldedMode = null
+            // Suppress Odin custom duty before switching to Custom so FanTrigger doesn't spike duty.
+            suppressOdinDuty(ctx)
             if (mode != MODE_CUSTOM) {
                 Prefs.setSavedFanMode(ctx, mode)
                 writeMode(MODE_CUSTOM)
@@ -129,6 +151,7 @@ object FanDaemon {
         stopped = true
         val ok = kill()
         Priv.sh("rm -f $SUSPEND")
+        restoreOdinSpeed(ctx)
         if (currentMode(ctx) == MODE_CUSTOM) writeMode(Prefs.savedFanMode(ctx))
         yieldedMode = null
         return ok
@@ -145,6 +168,7 @@ object FanDaemon {
                 Log.i(TAG, "profile -> Smart: taking over")
                 yieldedMode = null
                 Prefs.setSavedFanMode(ctx, MODE_SMART)
+                suppressOdinDuty(ctx)
                 writeMode(MODE_CUSTOM)
                 if (!state().running) start(ctx, forceTakeover = true) else syncSuspend()
             }
@@ -171,6 +195,7 @@ object FanDaemon {
         if (currentMode(ctx) == MODE_CUSTOM) {
             Log.i(TAG, "shutdown: restoring fan_mode=${Prefs.savedFanMode(ctx)}")
             kill()
+            restoreOdinSpeed(ctx)
             writeMode(Prefs.savedFanMode(ctx))
         }
     }
@@ -183,7 +208,10 @@ object FanDaemon {
 
     fun restart(ctx: Context): Boolean {
         kill()
-        Thread.sleep(300)
-        return start(ctx, forceTakeover = yieldedMode == null)
+        repeat(15) {
+            if (!state().running) return@repeat
+            Thread.sleep(100)
+        }
+        return start(ctx, forceTakeover = false)
     }
 }

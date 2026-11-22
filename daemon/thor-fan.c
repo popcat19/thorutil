@@ -19,12 +19,12 @@
 #define DUTY_PATH "/sys/class/gpio5_pwm2/duty"
 #define PERIOD_PATH "/sys/class/gpio5_pwm2/period"
 #define SPEED_PATH "/sys/class/gpio5_pwm2/speed"
+#define STATE_PATH "/sys/class/gpio5_pwm2/state"
 #define THERMAL_DIR "/sys/class/thermal"
 #define SOAK_TYPE "xo-therm"
 #define MAX_ZONES 64
 #define MAX_POINTS 8
 #define TICK_S 1.0
-#define REASSERT_TICKS 10
 #define LOG_TICKS 30
 
 static const char *state_path = "/data/local/tmp/thorutil-fan.state";
@@ -32,10 +32,10 @@ static const char *lock_path = "/data/local/tmp/thorutil-fan.lock";
 // Present while Odin owns the fan (screen off, or a non-Smart profile picked by the user).
 static const char *suspend_path = "/data/local/tmp/thorutil-fan.suspend";
 
-static double tau = 10.0;
-static double hyst = 2.0;
-static double slew_up = 2.0;
-static double slew_down = 1.0;
+static double tau = 15.0;
+static double hyst = 2.5;
+static double slew_up = 1.5;
+static double slew_down = 0.5;
 static double guard_c = 98.0;
 static int guard_s = 20;
 
@@ -158,13 +158,18 @@ static double curve(double t) {
 }
 
 // State format: pid pct soak_c rpm junct_c guard_active
+// Written atomically via rename so readers never observe a truncated empty file.
 static void write_state(int pct, double soak, double junct, int guarded) {
-    FILE *f = fopen(state_path, "we");
+    char tmp[128];
+    snprintf(tmp, sizeof tmp, "%s.tmp", state_path);
+    FILE *f = fopen(tmp, "we");
     if (!f) return;
     fprintf(f, "%d %d %.1f %ld %.1f %d\n",
             getpid(), pct, isnan(soak) ? 0.0 : soak, read_path(SPEED_PATH),
             isnan(junct) ? 0.0 : junct, guarded);
     fclose(f);
+    chmod(tmp, 0666);
+    rename(tmp, state_path);
 }
 
 static void usage(void) {
@@ -172,7 +177,7 @@ static void usage(void) {
 }
 
 int main(int argc, char **argv) {
-    const char *spec = "46:20,52:35,58:60,64:100";
+    const char *spec = "48:20,54:32,60:50,66:75,72:100";
     int o;
     while ((o = getopt(argc, argv, "c:t:h:u:D:g:G:")) != -1) {
         switch (o) {
@@ -230,12 +235,18 @@ int main(int argc, char **argv) {
             was_suspended = suspended;
             written = -1;
             over_ticks = 0;
+            if (!suspended) {
+                // Drop stale pre-sleep thermal history and ramp cleanly from the floor.
+                smooth = NAN;
+                held = NAN;
+                applied = pt_pct[0];
+            }
         }
         if (suspended) {
             if (tick % 2 == 0) {
                 double junct = hottest();
                 double raw = soak_fd >= 0 ? read_soak() : junct;
-                long cur = read_path(DUTY_PATH);
+                long cur = read_path(STATE_PATH) == 1 ? read_path(DUTY_PATH) : 0;
                 int pct = cur >= 0 ? (int)lround(cur * 100.0 / period) : 0;
                 write_state(pct, isnan(raw) ? 0.0 : raw, isnan(junct) ? 0.0 : junct, 0);
             }
@@ -261,11 +272,19 @@ int main(int argc, char **argv) {
                 }
                 int pct = (int)lround(applied);
                 long duty = period * pct / 100;
-                int reassert = tick % REASSERT_TICKS == 0 && read_path(DUTY_PATH) != duty;
-                if (duty != written || reassert) {
-                    if (write_path(DUTY_PATH, duty) == 0) written = duty;
+                int reassert = 0;
+                // Only drive duty while Odin has the fan rail enabled; check every tick so any
+                // external overwrite is corrected immediately instead of lingering for 10 s.
+                if (read_path(STATE_PATH) == 1) {
+                    long cur = read_path(DUTY_PATH);
+                    reassert = (duty == written && cur != duty);
+                    if (duty != written || cur != duty) {
+                        if (write_path(DUTY_PATH, duty) == 0) written = duty;
+                    }
+                } else {
+                    written = -1;
                 }
-                if (tick % 2 == 0 || duty != written || reassert)
+                if (tick % 2 == 0 || reassert)
                     write_state(pct, smooth, junct, guarded);
                 if (tick % LOG_TICKS == 0 || reassert)
                     fprintf(stderr, "fan: soak %.1fC (s %.1f h %.1f) junct %.1fC -> %d%%%s%s\n",
