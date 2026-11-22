@@ -19,6 +19,7 @@ import android.view.Display
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 
@@ -58,13 +59,25 @@ class KeeperService : Service() {
 
     private val daemonWatch = object : Runnable {
         override fun run() {
-            if (Prefs.daemonOnBoot(this@KeeperService) && !Daemon.stopped && !Daemon.state().running) {
-                val ok = Daemon.start(this@KeeperService)
-                Log.i(TAG, "daemon watchdog: start -> $ok")
-            }
-            if (Prefs.fanManaged(this@KeeperService) && !FanDaemon.stopped && !FanDaemon.state().running) {
-                val ok = FanDaemon.start(this@KeeperService)
-                Log.i(TAG, "fan watchdog: start -> $ok")
+            val nativeDir = applicationInfo.nativeLibraryDir
+            val upgraded = Prefs.lastNativeDir(this@KeeperService) != nativeDir && Priv.backend() != Priv.Backend.NONE
+            if (upgraded) {
+                Prefs.setLastNativeDir(this@KeeperService, nativeDir)
+                if (Prefs.daemonOnBoot(this@KeeperService) && !Daemon.stopped) {
+                    Log.i(TAG, "upgrade: restart mouse -> ${Daemon.restart(this@KeeperService)}")
+                }
+                if (Prefs.fanManaged(this@KeeperService) && !FanDaemon.stopped) {
+                    Log.i(TAG, "upgrade: restart fan -> ${FanDaemon.restart(this@KeeperService)}")
+                }
+            } else {
+                if (Prefs.daemonOnBoot(this@KeeperService) && !Daemon.stopped && !Daemon.state().running) {
+                    val ok = Daemon.start(this@KeeperService)
+                    Log.i(TAG, "daemon watchdog: start -> $ok")
+                }
+                if (Prefs.fanManaged(this@KeeperService) && !FanDaemon.stopped && !FanDaemon.state().running) {
+                    val ok = FanDaemon.start(this@KeeperService)
+                    Log.i(TAG, "fan watchdog: start -> $ok")
+                }
             }
             handler.postDelayed(this, 10_000)
         }
@@ -147,7 +160,11 @@ class KeeperService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification())
         // Boot: Shizuku can come up after us, so retry a few times.
         for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
-        // Daemon watchdog: restart it if it dies.
+        if (Prefs.fanManaged(this)) {
+            val interactive = getSystemService(PowerManager::class.java).isInteractive
+            handler.post { FanDaemon.setScreenOff(!interactive) }
+        }
+        // Daemon watchdog: restart it if it dies (or once after an APK upgrade).
         handler.removeCallbacks(daemonWatch)
         handler.post(daemonWatch)
         return START_STICKY

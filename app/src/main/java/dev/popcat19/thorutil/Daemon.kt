@@ -85,7 +85,10 @@ object Daemon {
 
     fun restart(ctx: Context): Boolean {
         kill()
-        Thread.sleep(300)
+        repeat(15) {
+            if (!state().running) return@repeat
+            Thread.sleep(100)
+        }
         return start(ctx)
     }
 }
