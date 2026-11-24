@@ -39,6 +39,7 @@
 static double deadzone = 0.02;
 static double pointer_speed = 1000.0;
 static double scroll_speed = 12.0;
+static int rotate_dpad = 0;
 static const char *state_path = "/data/local/tmp/thorutil-mouse.state";
 static const char *lock_path = "/data/local/tmp/thorutil-mouse.lock";
 static const char *suspend_path = "/data/local/tmp/thorutil-mouse.suspend";
@@ -64,6 +65,8 @@ struct bridge {
     int suspended, resume_active;
     double acc_x, acc_y, acc_w, acc_h;
     int held[5];
+    int dpad_out[4];
+    int hat_out[2];
     int bottom;
     // focus.current: the newer of the last touched screen and the last app focus action.
     // Mouse mode starts on it.
@@ -228,6 +231,32 @@ static int mouse_btn_index(int code) {
 }
 
 static const int mouse_btns[5] = {BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA};
+// Clockwise order so adding (5 - rot) % 4 rotates D-pad keys to match display orientation.
+static const int dpad_btns[4] = {BTN_DPAD_UP, BTN_DPAD_RIGHT, BTN_DPAD_DOWN, BTN_DPAD_LEFT};
+
+static int dpad_index(int code) {
+    for (int i = 0; i < 4; i++)
+        if (dpad_btns[i] == code) return i;
+    return -1;
+}
+
+static void sync_hat(struct bridge *b, int send_syn) {
+    int rx = b->ax[ABS_HAT0X], ry = b->ax[ABS_HAT0Y];
+    int d = (5 - b->rotation[b->bottom]) % 4;
+    for (int i = 0; i < d; i++) { int t = rx; rx = -ry; ry = t; }
+    int changed = 0;
+    if (rx != b->hat_out[0]) {
+        b->hat_out[0] = rx;
+        emit(b->pass, EV_ABS, ABS_HAT0X, rx);
+        changed = 1;
+    }
+    if (ry != b->hat_out[1]) {
+        b->hat_out[1] = ry;
+        emit(b->pass, EV_ABS, ABS_HAT0Y, ry);
+        changed = 1;
+    }
+    if (changed && send_syn) emit(b->pass, EV_SYN, SYN_REPORT, 0);
+}
 
 // Android puts the mouse pointer on display 0 unless desktop mode on external
 // displays is on; the choice is only re-read when viewports change, so nudge
@@ -271,6 +300,7 @@ static void move_pointer(struct bridge *b, int bottom, int wait, int lazy) {
     pid_t pid = run_move(bottom, lazy);
     if (pid < 0) { perror("fork"); return; }
     b->bottom = bottom;
+    if (rotate_dpad && b->active) sync_hat(b, 1);
     if (wait) waitpid(pid, NULL, 0);
     else b->mover = pid;
     fprintf(stderr, "pointer on %s\n", bottom ? "bottom" : "top");
@@ -292,12 +322,21 @@ static void set_active(struct bridge *b, int on) {
             return;
         }
         b->acc_x = b->acc_y = b->acc_w = b->acc_h = 0;
+        memset(b->dpad_out, 0, sizeof(b->dpad_out));
+        memset(b->hat_out, 0, sizeof(b->hat_out));
         if (b->focus && !b->bottom) move_pointer(b, 1, 0, 0);
     } else {
         for (int i = 0; i < 5; i++)
             if (b->held[i]) emit(b->mouse, EV_KEY, mouse_btns[i], 0);
         if (b->mouse >= 0) emit(b->mouse, EV_SYN, SYN_REPORT, 0);
+        for (int i = 0; i < 4; i++)
+            if (b->dpad_out[i]) emit(b->pass, EV_KEY, b->dpad_out[i], 0);
+        if (b->hat_out[0]) emit(b->pass, EV_ABS, ABS_HAT0X, 0);
+        if (b->hat_out[1]) emit(b->pass, EV_ABS, ABS_HAT0Y, 0);
+        if (b->pass >= 0) emit(b->pass, EV_SYN, SYN_REPORT, 0);
         memset(b->held, 0, sizeof(b->held));
+        memset(b->dpad_out, 0, sizeof(b->dpad_out));
+        memset(b->hat_out, 0, sizeof(b->hat_out));
         memset(b->routed, 0, sizeof(b->routed));
         ioctl(b->pad, EVIOCGRAB, 0);
         if (b->bottom) move_pointer(b, 0, 1, 0);
@@ -390,6 +429,24 @@ static void handle(struct bridge *b, const struct input_event *ev) {
             emit(b->mouse, EV_SYN, SYN_REPORT, 0);
             return;
         }
+        int di = rotate_dpad ? dpad_index(ev->code) : -1;
+        if (di >= 0) {
+            int out_code;
+            if (ev->value == 1) {
+                int d = (5 - b->rotation[b->bottom]) % 4;
+                out_code = dpad_btns[(di + d) % 4];
+                b->dpad_out[di] = out_code;
+            } else {
+                out_code = b->dpad_out[di] ? b->dpad_out[di] : ev->code;
+                if (ev->value == 0) b->dpad_out[di] = 0;
+            }
+            emit(b->pass, EV_KEY, out_code, ev->value);
+            return;
+        }
+    }
+    if (rotate_dpad && ev->type == EV_ABS && (ev->code == ABS_HAT0X || ev->code == ABS_HAT0Y)) {
+        sync_hat(b, 0);
+        return;
     }
     if (ev->type == EV_ABS && consumed_abs(ev->code)) return;
     emit(b->pass, ev->type, ev->code, ev->value);
@@ -420,6 +477,7 @@ static void sync_rotation(struct bridge *b) {
     if (sscanf(buf, "%d %d", &t, &m) != 2 || t < 0 || t > 3 || m < 0 || m > 3) return;
     b->rotation[0] = t;
     b->rotation[1] = m;
+    if (rotate_dpad && b->active) sync_hat(b, 1);
 }
 
 // Passive (no grab). Touching a screen moves the pointer there only in mouse mode.
@@ -489,10 +547,11 @@ static void usage(const char *argv0) {
 
 int main(int argc, char **argv) {
     int start_active = 0, opt;
-    while ((opt = getopt(argc, argv, "ad:p:s:f:hk")) != -1) {
+    while ((opt = getopt(argc, argv, "ard:p:s:f:hk")) != -1) {
         switch (opt) {
         case 'k': return ayn_tap();
         case 'a': start_active = 1; break;
+        case 'r': rotate_dpad = 1; break;
         case 'd': deadzone = atof(optarg); break;
         case 'p': pointer_speed = atof(optarg); break;
         case 's': scroll_speed = atof(optarg); break;

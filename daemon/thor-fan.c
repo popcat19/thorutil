@@ -20,12 +20,17 @@
 #define PERIOD_PATH "/sys/class/gpio5_pwm2/period"
 #define SPEED_PATH "/sys/class/gpio5_pwm2/speed"
 #define STATE_PATH "/sys/class/gpio5_pwm2/state"
+#define USB_ONLINE_PATH "/sys/class/power_supply/usb/online"
+#define BAT_STATUS_PATH "/sys/class/power_supply/battery/status"
 #define THERMAL_DIR "/sys/class/thermal"
 #define SOAK_TYPE "xo-therm"
 #define MAX_ZONES 64
 #define MAX_POINTS 8
 #define TICK_S 1.0
 #define LOG_TICKS 30
+#define ZERO_HOLD_TICKS 10
+#define ZERO_JUNCT_OFF_C 75.0
+#define ZERO_JUNCT_ON_C 80.0
 
 static const char *state_path = "/data/local/tmp/thorutil-fan.state";
 static const char *lock_path = "/data/local/tmp/thorutil-fan.lock";
@@ -38,6 +43,9 @@ static double slew_up = 1.5;
 static double slew_down = 0.5;
 static double guard_c = 98.0;
 static int guard_s = 20;
+// 0% fan on battery: disabled when zero_off_c <= 0.
+static double zero_off_c = 0.0;
+static double zero_on_c = 0.0;
 
 static int soak_fd = -1;
 static int nzones;
@@ -157,29 +165,39 @@ static double curve(double t) {
     return pt_pct[npoints - 1];
 }
 
-// State format: pid pct soak_c rpm junct_c guard_active
+static int is_plugged(void) {
+    if (read_path(USB_ONLINE_PATH) == 1) return 1;
+    FILE *f = fopen(BAT_STATUS_PATH, "re");
+    if (!f) return 1; // fail-safe: treat unreadable battery status as plugged so fan runs
+    char buf[32] = {0};
+    if (!fgets(buf, sizeof buf, f)) buf[0] = 0;
+    fclose(f);
+    return strncmp(buf, "Discharging", 11) != 0;
+}
+
+// State format: pid pct soak_c rpm junct_c guard_active zero_stopped
 // Written atomically via rename so readers never observe a truncated empty file.
-static void write_state(int pct, double soak, double junct, int guarded) {
+static void write_state(int pct, double soak, double junct, int guarded, int zero_stopped) {
     char tmp[128];
     snprintf(tmp, sizeof tmp, "%s.tmp", state_path);
     FILE *f = fopen(tmp, "we");
     if (!f) return;
-    fprintf(f, "%d %d %.1f %ld %.1f %d\n",
+    fprintf(f, "%d %d %.1f %ld %.1f %d %d\n",
             getpid(), pct, isnan(soak) ? 0.0 : soak, read_path(SPEED_PATH),
-            isnan(junct) ? 0.0 : junct, guarded);
+            isnan(junct) ? 0.0 : junct, guarded, zero_stopped);
     fclose(f);
     chmod(tmp, 0666);
     rename(tmp, state_path);
 }
 
 static void usage(void) {
-    fprintf(stderr, "usage: thor-fan -c T:P,T:P... [-t tau_s] [-h hyst_c] [-u up_pct_s] [-D down_pct_s] [-g guard_c] [-G guard_s]\n");
+    fprintf(stderr, "usage: thor-fan -c T:P,T:P... [-t tau_s] [-h hyst_c] [-u up_pct_s] [-D down_pct_s] [-g guard_c] [-G guard_s] [-z zero_off_c] [-Z zero_on_c]\n");
 }
 
 int main(int argc, char **argv) {
     const char *spec = "48:20,54:32,60:50,66:75,72:100";
     int o;
-    while ((o = getopt(argc, argv, "c:t:h:u:D:g:G:")) != -1) {
+    while ((o = getopt(argc, argv, "c:t:h:u:D:g:G:z:Z:")) != -1) {
         switch (o) {
         case 'c': spec = optarg; break;
         case 't': tau = atof(optarg); break;
@@ -188,9 +206,12 @@ int main(int argc, char **argv) {
         case 'D': slew_down = atof(optarg); break;
         case 'g': guard_c = atof(optarg); break;
         case 'G': guard_s = atoi(optarg); break;
+        case 'z': zero_off_c = atof(optarg); break;
+        case 'Z': zero_on_c = atof(optarg); break;
         default: usage(); return 2;
         }
     }
+    if (zero_off_c > 0.0 && zero_on_c <= zero_off_c) zero_on_c = zero_off_c + 4.0;
     if (parse_curve(spec) < 0) {
         fprintf(stderr, "bad curve: %s\n", spec);
         return 2;
@@ -220,13 +241,15 @@ int main(int argc, char **argv) {
     double smooth = NAN, held = NAN, applied = pt_pct[0];
     long written = -1;
     int over_ticks = 0;
+    int cool_ticks = 0;
+    int zero_stopped = 0;
     int was_suspended = 0;
     unsigned long tick = 0;
-    fprintf(stderr, "fan: soak=%s %d junct zones, %d points, period %ld, tau %.0fs hyst %.1fC slew +%.1f/-%.1f %%/s guard %.0fC/%ds\n",
-            soak_fd >= 0 ? SOAK_TYPE : "fallback", nzones, npoints, period, tau, hyst, slew_up, slew_down, guard_c, guard_s);
+    fprintf(stderr, "fan: soak=%s %d junct zones, %d points, period %ld, tau %.0fs hyst %.1fC slew +%.1f/-%.1f %%/s guard %.0fC/%ds zero %.1f/%.1fC\n",
+            soak_fd >= 0 ? SOAK_TYPE : "fallback", nzones, npoints, period, tau, hyst, slew_up, slew_down, guard_c, guard_s, zero_off_c, zero_on_c);
 
     // Write initial state immediately so start/watchdog checks see our pid even if launched suspended.
-    write_state(0, 0.0, 0.0, 0);
+    write_state(0, 0.0, 0.0, 0, 0);
 
     while (!quit) {
         int suspended = access(suspend_path, F_OK) == 0;
@@ -235,6 +258,8 @@ int main(int argc, char **argv) {
             was_suspended = suspended;
             written = -1;
             over_ticks = 0;
+            cool_ticks = 0;
+            zero_stopped = 0;
             if (!suspended) {
                 // Drop stale pre-sleep thermal history and ramp cleanly from the floor.
                 smooth = NAN;
@@ -248,7 +273,7 @@ int main(int argc, char **argv) {
                 double raw = soak_fd >= 0 ? read_soak() : junct;
                 long cur = read_path(STATE_PATH) == 1 ? read_path(DUTY_PATH) : 0;
                 int pct = cur >= 0 ? (int)lround(cur * 100.0 / period) : 0;
-                write_state(pct, isnan(raw) ? 0.0 : raw, isnan(junct) ? 0.0 : junct, 0);
+                write_state(pct, isnan(raw) ? 0.0 : raw, isnan(junct) ? 0.0 : junct, 0, 0);
             }
         } else {
             double junct = hottest();
@@ -263,39 +288,82 @@ int main(int argc, char **argv) {
                 else if (isnan(junct) || junct < guard_c - 3.0) over_ticks = 0;
                 int guarded = guard_s <= 0 ? (over_ticks > 0) : (over_ticks >= guard_s);
 
-                double want = guarded ? 100.0 : curve(held);
-                if (guarded) applied = 100.0;
-                else {
-                    double up = slew_up * TICK_S, down = slew_down * TICK_S;
-                    double d = want - applied;
-                    applied += d > up ? up : d < -down ? -down : d;
-                }
-                int pct = (int)lround(applied);
-                long duty = period * pct / 100;
-                int reassert = 0;
-                // Only drive duty while Odin has the fan rail enabled; check every tick so any
-                // external overwrite is corrected immediately instead of lingering for 10 s.
-                if (read_path(STATE_PATH) == 1) {
-                    long cur = read_path(DUTY_PATH);
-                    reassert = (duty == written && cur != duty);
-                    if (duty != written || cur != duty) {
-                        if (write_path(DUTY_PATH, duty) == 0) written = duty;
+                int plugged = zero_off_c > 0.0 ? is_plugged() : 1;
+                if (zero_off_c > 0.0) {
+                    if (zero_stopped) {
+                        if (plugged || guarded || smooth >= zero_on_c ||
+                            (!isnan(junct) && junct >= ZERO_JUNCT_ON_C)) {
+                            write_path(STATE_PATH, 1);
+                            zero_stopped = 0;
+                            cool_ticks = 0;
+                            applied = pt_pct[0];
+                            written = -1;
+                            fprintf(stderr, "fan: zero exit (soak %.1fC junct %.1fC plugged=%d)\n",
+                                    smooth, isnan(junct) ? -1.0 : junct, plugged);
+                        }
+                    } else if (!plugged && !guarded && smooth <= zero_off_c &&
+                               (isnan(junct) || junct < ZERO_JUNCT_OFF_C)) {
+                        if (++cool_ticks >= ZERO_HOLD_TICKS && read_path(STATE_PATH) == 1) {
+                            write_path(DUTY_PATH, 0);
+                            if (write_path(STATE_PATH, 0) == 0) {
+                                zero_stopped = 1;
+                                applied = 0.0;
+                                written = 0;
+                                fprintf(stderr, "fan: zero enter (soak %.1fC junct %.1fC)\n",
+                                        smooth, isnan(junct) ? -1.0 : junct);
+                            }
+                        }
+                    } else {
+                        cool_ticks = 0;
                     }
-                } else {
-                    written = -1;
                 }
-                if (tick % 2 == 0 || reassert)
-                    write_state(pct, smooth, junct, guarded);
-                if (tick % LOG_TICKS == 0 || reassert)
-                    fprintf(stderr, "fan: soak %.1fC (s %.1f h %.1f) junct %.1fC -> %d%%%s%s\n",
-                            raw, smooth, held, isnan(junct) ? -1.0 : junct, pct,
-                            guarded ? " GUARD" : "", reassert ? " reassert" : "");
+
+                if (zero_stopped) {
+                    // Reassert state=0 if Odin re-enables the rail on app switch while cool on battery.
+                    if (read_path(STATE_PATH) == 1) {
+                        write_path(DUTY_PATH, 0);
+                        write_path(STATE_PATH, 0);
+                    }
+                    if (tick % 2 == 0) write_state(0, smooth, junct, 0, 1);
+                    if (tick % LOG_TICKS == 0)
+                        fprintf(stderr, "fan: soak %.1fC junct %.1fC -> 0%% (battery)\n",
+                                smooth, isnan(junct) ? -1.0 : junct);
+                } else {
+                    double want = guarded ? 100.0 : curve(held);
+                    if (guarded) applied = 100.0;
+                    else {
+                        double up = slew_up * TICK_S, down = slew_down * TICK_S;
+                        double d = want - applied;
+                        applied += d > up ? up : d < -down ? -down : d;
+                    }
+                    int pct = (int)lround(applied);
+                    long duty = period * pct / 100;
+                    int reassert = 0;
+                    // Only drive duty while Odin has the fan rail enabled; check every tick so any
+                    // external overwrite is corrected immediately instead of lingering for 10 s.
+                    if (read_path(STATE_PATH) == 1) {
+                        long cur = read_path(DUTY_PATH);
+                        reassert = (duty == written && cur != duty);
+                        if (duty != written || cur != duty) {
+                            if (write_path(DUTY_PATH, duty) == 0) written = duty;
+                        }
+                    } else {
+                        written = -1;
+                    }
+                    if (tick % 2 == 0 || reassert)
+                        write_state(pct, smooth, junct, guarded, 0);
+                    if (tick % LOG_TICKS == 0 || reassert)
+                        fprintf(stderr, "fan: soak %.1fC (s %.1f h %.1f) junct %.1fC -> %d%%%s%s\n",
+                                raw, smooth, held, isnan(junct) ? -1.0 : junct, pct,
+                                guarded ? " GUARD" : "", reassert ? " reassert" : "");
+                }
             }
         }
         tick++;
         struct timespec ts = {(time_t)TICK_S, 0};
         nanosleep(&ts, NULL);
     }
+    if (zero_stopped) write_path(STATE_PATH, 1);
     unlink(state_path);
     return 0;
 }
