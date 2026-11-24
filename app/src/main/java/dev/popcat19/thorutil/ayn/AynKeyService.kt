@@ -1,17 +1,20 @@
 package dev.popcat19.thorutil.ayn
 
-import dev.popcat19.thorutil.feedback.Feedback
 import android.accessibilityservice.AccessibilityService
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
+import dev.popcat19.thorutil.Prefs
+import dev.popcat19.thorutil.feedback.Feedback
 
 // Holds AYN as a modifier. AYN never reaches PhoneWindowManager while this runs,
 // so a lone tap is re-sent through the daemon's gpio-keys clone (vendor 0x2020),
-// which this filter lets through. Pad Home is a second modifier: Home+L1/R1 sends
-// Home to one screen without moving pad focus; a lone Home is re-sent on release.
+// which this filter lets through. Pad Home supports Home+L1/R1 (and optional Home 2x
+// for Recents). Pad Back supports legacy Back+L1/R1 or optional Back 2x (prev app)
+// and Back hold (swap windows).
 class AynKeyService : AccessibilityService() {
     private lateinit var thread: HandlerThread
     private lateinit var worker: Handler
@@ -19,13 +22,32 @@ class AynKeyService : AccessibilityService() {
     private var combo = false
     private var homeHeld = false
     private var homeCombo = false
+    private var homeTapPending = false
     private var backHeld = false
     private var backCombo = false
+    private var backTapPending = false
     private val swallowed = HashSet<Int>()
     @Volatile private var stepping = false
-    private val main = Handler(android.os.Looper.getMainLooper())
+    private val main = Handler(Looper.getMainLooper())
     private var repeatCode = 0
     private var repeatTask: Runnable? = null
+
+    private val homeSingleRun = Runnable {
+        homeTapPending = false
+        worker.post { AynActions.home(applicationContext, null) }
+    }
+
+    private val backSingleRun = Runnable {
+        backTapPending = false
+        worker.post { AynActions.back(applicationContext) }
+    }
+
+    private val backHoldRun = Runnable {
+        if (backHeld && !backCombo) {
+            backCombo = true
+            worker.post { AynActions.run(applicationContext, AynAction.SWAP_WINDOWS) }
+        }
+    }
 
     // Accessibility filters see raw down/up only; repeats come later from the dispatcher.
     private fun startRepeat(code: Int, action: AynAction) {
@@ -62,6 +84,10 @@ class AynKeyService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        main.removeCallbacks(homeSingleRun)
+        main.removeCallbacks(backSingleRun)
+        main.removeCallbacks(backHoldRun)
+        stopRepeat()
         if (Feedback.a11y === this) Feedback.a11y = null
         thread.quitSafely()
         super.onDestroy()
@@ -80,21 +106,65 @@ class AynKeyService : AccessibilityService() {
             return true
         }
         if (isPadHome(e)) {
+            val dbl = Prefs.aynHomeDoubleRecents(applicationContext)
             when (e.action) {
-                KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) { homeHeld = true; homeCombo = false }
+                KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) {
+                    homeHeld = true
+                    if (dbl && homeTapPending) {
+                        main.removeCallbacks(homeSingleRun)
+                        homeTapPending = false
+                        homeCombo = true
+                        worker.post { AynActions.run(applicationContext, AynAction.RECENTS_TOGGLE) }
+                    } else {
+                        homeCombo = false
+                    }
+                }
                 KeyEvent.ACTION_UP -> {
                     homeHeld = false
-                    if (!homeCombo) worker.post { AynActions.home(applicationContext, null) }
+                    if (!homeCombo) {
+                        if (dbl) {
+                            homeTapPending = true
+                            main.removeCallbacks(homeSingleRun)
+                            main.postDelayed(homeSingleRun, DOUBLE_TAP_MS)
+                        } else {
+                            worker.post { AynActions.home(applicationContext, null) }
+                        }
+                    }
                 }
             }
             return true
         }
         if (isPadBack(e)) {
+            val gest = Prefs.aynBackGestures(applicationContext)
             when (e.action) {
-                KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) { backHeld = true; backCombo = false }
+                KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) {
+                    backHeld = true
+                    if (gest && backTapPending) {
+                        main.removeCallbacks(backSingleRun)
+                        main.removeCallbacks(backHoldRun)
+                        backTapPending = false
+                        backCombo = true
+                        worker.post { AynActions.run(applicationContext, AynAction.PREV_APP) }
+                    } else {
+                        backCombo = false
+                        if (gest) {
+                            main.removeCallbacks(backHoldRun)
+                            main.postDelayed(backHoldRun, HOLD_MS)
+                        }
+                    }
+                }
                 KeyEvent.ACTION_UP -> {
                     backHeld = false
-                    if (!backCombo) worker.post { AynActions.back(applicationContext) }
+                    main.removeCallbacks(backHoldRun)
+                    if (!backCombo) {
+                        if (gest) {
+                            backTapPending = true
+                            main.removeCallbacks(backSingleRun)
+                            main.postDelayed(backSingleRun, DOUBLE_TAP_MS)
+                        } else {
+                            worker.post { AynActions.back(applicationContext) }
+                        }
+                    }
                 }
             }
             return true
@@ -103,13 +173,18 @@ class AynKeyService : AccessibilityService() {
         val code = e.keyCode
         if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && homeHeld) {
             val d = AynBinds.HOME[code] ?: return false
+            main.removeCallbacks(homeSingleRun)
+            homeTapPending = false
             homeCombo = true
             swallowed.add(code)
             worker.post { AynActions.home(applicationContext, d) }
             return true
         }
         if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && backHeld) {
-            val action = AynBinds.BACK[code] ?: return false
+            val action = AynBinds.backBinds(applicationContext)[code] ?: return false
+            main.removeCallbacks(backHoldRun)
+            main.removeCallbacks(backSingleRun)
+            backTapPending = false
             backCombo = true
             swallowed.add(code)
             worker.post { AynActions.run(applicationContext, action) }
@@ -117,7 +192,7 @@ class AynKeyService : AccessibilityService() {
         }
 
         if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && held) {
-            val action = AynBinds.DEFAULT[code] ?: return false
+            val action = AynBinds.aynBinds(applicationContext)[code] ?: return false
             combo = true
             swallowed.add(code)
             worker.post { AynActions.run(applicationContext, action) }
@@ -154,8 +229,6 @@ class AynKeyService : AccessibilityService() {
         return dev.supportsSource(InputDevice.SOURCE_GAMEPAD)
     }
 
-
-
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
 
@@ -164,6 +237,8 @@ class AynKeyService : AccessibilityService() {
         const val GPIO_VENDOR = 0x0001
         const val REPEAT_DELAY_MS = 400L
         const val REPEAT_MS = 80L
+        const val DOUBLE_TAP_MS = 260L
+        const val HOLD_MS = 450L
         val REPEATING = setOf(AynAction.BRIGHTNESS_UP, AynAction.BRIGHTNESS_DOWN)
     }
 }

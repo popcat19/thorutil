@@ -33,9 +33,18 @@ class RotationHint(private val ctx: Context, private val onPick: (RotationMode) 
             val q = ((deg + 45) / 90) % 4
             val off = Math.floorMod(deg - q * 90 + 180, 360) - 180
             if (kotlin.math.abs(off) > 25) return
-            val physical = if (q % 2 == 0) RotationMode.PORTRAIT else RotationMode.LANDSCAPE
+            val rev = Prefs.rotationReverseInCycle(ctx)
+            val physical = when {
+                rev && q == 2 -> RotationMode.REVERSE_PORTRAIT
+                q % 2 == 0 -> RotationMode.PORTRAIT
+                else -> RotationMode.LANDSCAPE
+            }
             val r = top?.rotation ?: return
-            val shown = if (r == Surface.ROTATION_0 || r == Surface.ROTATION_180) RotationMode.PORTRAIT else RotationMode.LANDSCAPE
+            val shown = when {
+                rev && r == Surface.ROTATION_180 -> RotationMode.REVERSE_PORTRAIT
+                r == Surface.ROTATION_0 || r == Surface.ROTATION_180 -> RotationMode.PORTRAIT
+                else -> RotationMode.LANDSCAPE
+            }
             val want = if (physical != shown) physical else null
             if (want == held) return
             held = want

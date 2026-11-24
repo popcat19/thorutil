@@ -1,11 +1,9 @@
 package dev.popcat19.thorutil
 
-import dev.popcat19.thorutil.feedback.Feedback
-import dev.popcat19.thorutil.feedback.FeedbackType
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
@@ -15,30 +13,37 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.database.ContentObserver
 import android.hardware.display.DisplayManager
-import android.view.Display
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import android.view.Display
+import dev.popcat19.thorutil.feedback.Feedback
+import dev.popcat19.thorutil.feedback.FeedbackType
 
 // Long-lived helper. Pin: BetterDSA and the stock dual-screen assistant reset ime_fixed
-// around screen off/on and at boot, so re-apply it. Lock: release the pad from mouse
-// mode while the keyguard is up so the gamepad can enter a PIN. Rotation: hosts the
-// orientation overlay, which only lives as long as this process, and the rotate hint.
-// Volume: mirror media volume to the bottom speaker setting.
+// around screen off/on and at boot, so re-apply it (and rebind stale WMS IME targets).
+// Lock: release the pad from mouse mode while the keyguard is up so the gamepad can enter a PIN.
+// Rotation: hosts the orientation overlay and rotate hint. Volume: mirror media volume to bottom.
+// Fan / Perf / AutoLaunch: keep native daemons and keep-alive background apps healthy.
 class KeeperService : Service() {
     private lateinit var thread: HandlerThread
     private lateinit var handler: Handler
     private var observer: ContentObserver? = null
+    private var secondResumeObserver: ContentObserver? = null
     private var fanObserver: ContentObserver? = null
     private var hint: RotationHint? = null
     private val restore = Runnable { enforce("debounce") }
+    private val imeRebind = Runnable { rebindIme("trigger") }
     private val fanModeChange = Runnable { FanDaemon.onModeChanged(this) }
     private var lastRot = ""
+    private var watchTick = 0
+    @Volatile
+    private var lastRebindAt = 0L
 
-    // Stick motion in mouse mode follows each screen's rotation.
+    // Stick and D-pad motion in mouse mode follow each screen's rotation.
     private val displays = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(id: Int) {}
         override fun onDisplayRemoved(id: Int) {}
@@ -51,8 +56,24 @@ class KeeperService : Service() {
         val bottom = dm.getDisplay(Rotation.BOTTOM_DISPLAY)?.rotation ?: return
         val key = "$top $bottom"
         if (key == lastRot) return
+        val hadPrev = lastRot.isNotEmpty()
         lastRot = key
         handler.post { Daemon.rotation(top, bottom) }
+        if (hadPrev && Prefs.imeRebindFix(this)) {
+            handler.removeCallbacks(imeRebind)
+            handler.postDelayed(imeRebind, 600)
+            handler.postDelayed({ rebindIme("rotation-settle") }, 1500)
+        }
+    }
+
+    private fun rebindIme(why: String) {
+        if (!Prefs.imeRebindFix(this)) return
+        val now = System.currentTimeMillis()
+        if (now - lastRebindAt < 400) return
+        if (PinMode.current(this) == PinMode.OFF) return
+        lastRebindAt = now
+        val ok = PinMode.rebindIme(this)
+        Log.i(TAG, "ime rebind ($why) -> $ok")
     }
 
     private val volumeSync = Runnable { VolumeLink.sync(this) }
@@ -69,6 +90,9 @@ class KeeperService : Service() {
                 if (Prefs.fanManaged(this@KeeperService) && !FanDaemon.stopped) {
                     Log.i(TAG, "upgrade: restart fan -> ${FanDaemon.restart(this@KeeperService)}")
                 }
+                if (Prefs.perfAdaptive(this@KeeperService) && !PerfDaemon.stopped) {
+                    Log.i(TAG, "upgrade: restart perf -> ${PerfDaemon.restart(this@KeeperService)}")
+                }
             } else {
                 if (Prefs.daemonOnBoot(this@KeeperService) && !Daemon.stopped && !Daemon.state().running) {
                     val ok = Daemon.start(this@KeeperService)
@@ -78,6 +102,14 @@ class KeeperService : Service() {
                     val ok = FanDaemon.start(this@KeeperService)
                     Log.i(TAG, "fan watchdog: start -> $ok")
                 }
+                if (Prefs.perfAdaptive(this@KeeperService) && !PerfDaemon.stopped && !PerfDaemon.state().running) {
+                    val ok = PerfDaemon.start(this@KeeperService)
+                    Log.i(TAG, "perf watchdog: start -> $ok")
+                }
+            }
+            if (++watchTick % 3 == 0 && AutoLaunch.hasKeepAlive(this@KeeperService)) {
+                val interactive = getSystemService(PowerManager::class.java).isInteractive
+                AutoLaunch.watchdogTick(this@KeeperService, interactive)
             }
             handler.postDelayed(this, 10_000)
         }
@@ -96,14 +128,23 @@ class KeeperService : Service() {
         override fun onReceive(c: Context, i: Intent) {
             val action = i.action ?: ""
             if (action == Intent.ACTION_SHUTDOWN) {
-                handler.post { FanDaemon.onShutdown(this@KeeperService) }
+                handler.post {
+                    FanDaemon.onShutdown(this@KeeperService)
+                    PerfDaemon.onShutdown(this@KeeperService)
+                }
                 return
             }
+            val off = action == Intent.ACTION_SCREEN_OFF
             handler.post { syncLock(action) }
-            if (Prefs.fanManaged(this@KeeperService)) handler.post { FanDaemon.setScreenOff(action == Intent.ACTION_SCREEN_OFF) }
-            if (action == Intent.ACTION_SCREEN_OFF) hint?.stop() else syncHint()
+            if (Prefs.fanManaged(this@KeeperService)) handler.post { FanDaemon.setScreenOff(off) }
+            if (Prefs.perfAdaptive(this@KeeperService)) handler.post { PerfDaemon.setScreenOff(off) }
+            if (off) hint?.stop() else syncHint()
             // The assistants write their reset shortly after these broadcasts.
             for (delay in longArrayOf(400, 1500, 4000)) handler.postDelayed({ enforce(action) }, delay)
+            if (!off && Prefs.imeRebindFix(this@KeeperService)) {
+                handler.postDelayed({ rebindIme(action) }, 600)
+                handler.postDelayed({ rebindIme("$action-late") }, 2000)
+            }
         }
     }
 
@@ -124,6 +165,15 @@ class KeeperService : Service() {
         }.also {
             contentResolver.registerContentObserver(Settings.System.getUriFor(PinMode.IME_FIXED), false, it)
             contentResolver.registerContentObserver(Settings.System.getUriFor(PinMode.IME_SHOW_ON_SECOND), false, it)
+        }
+        secondResumeObserver = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                if (!Prefs.imeRebindFix(this@KeeperService)) return
+                handler.removeCallbacks(imeRebind)
+                handler.postDelayed(imeRebind, 500)
+            }
+        }.also {
+            contentResolver.registerContentObserver(Settings.System.getUriFor(PinMode.SECOND_RESUME), false, it)
         }
         fanObserver = object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean) {
@@ -160,10 +210,9 @@ class KeeperService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification())
         // Boot: Shizuku can come up after us, so retry a few times.
         for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
-        if (Prefs.fanManaged(this)) {
-            val interactive = getSystemService(PowerManager::class.java).isInteractive
-            handler.post { FanDaemon.setScreenOff(!interactive) }
-        }
+        val interactive = getSystemService(PowerManager::class.java).isInteractive
+        if (Prefs.fanManaged(this)) handler.post { FanDaemon.setScreenOff(!interactive) }
+        if (Prefs.perfAdaptive(this)) handler.post { PerfDaemon.setScreenOff(!interactive) }
         // Daemon watchdog: restart it if it dies (or once after an APK upgrade).
         handler.removeCallbacks(daemonWatch)
         handler.post(daemonWatch)
@@ -213,7 +262,8 @@ class KeeperService : Service() {
                     if (Prefs.pinManaged(this)) "IME pin: ${Prefs.pinMode(this).label}" else null,
                     if (Prefs.lockSuspend(this)) "Mouse off on lockscreen" else null,
                     Prefs.rotation(this).takeIf { it != RotationMode.AUTO }?.let { "Top: ${it.label}" },
-                ).joinToString(" · ")
+                    if (Prefs.perfAdaptive(this)) "Adaptive perf" else null,
+                ).joinToString(" · ").ifEmpty { "ThorUtil Keeper" }
             )
             .setContentIntent(open)
             .setOngoing(true)
@@ -227,6 +277,7 @@ class KeeperService : Service() {
         getSystemService(DisplayManager::class.java).unregisterDisplayListener(displays)
         hint?.stop()
         observer?.let { contentResolver.unregisterContentObserver(it) }
+        secondResumeObserver?.let { contentResolver.unregisterContentObserver(it) }
         fanObserver?.let { contentResolver.unregisterContentObserver(it) }
         unregisterReceiver(screenRx)
         unregisterReceiver(volumeRx)
@@ -239,9 +290,10 @@ class KeeperService : Service() {
         private const val CHANNEL = "pin_keeper"
         private const val NOTIF_ID = 1
 
-        private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.lockSuspend(ctx) ||
-            Prefs.rotation(ctx) != RotationMode.AUTO || Prefs.rotationHint(ctx) || Prefs.volumeLink(ctx) ||
-            Prefs.daemonOnBoot(ctx) || Prefs.fanManaged(ctx)
+        private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.imeRebindFix(ctx) ||
+            Prefs.lockSuspend(ctx) || Prefs.rotation(ctx) != RotationMode.AUTO ||
+            Prefs.rotationHint(ctx) || Prefs.volumeLink(ctx) || Prefs.daemonOnBoot(ctx) ||
+            Prefs.fanManaged(ctx) || Prefs.perfAdaptive(ctx) || AutoLaunch.hasKeepAlive(ctx)
 
         fun sync(ctx: Context) {
             val i = Intent(ctx, KeeperService::class.java)

@@ -12,21 +12,27 @@ object Export {
         VOLUME("volume", "Volume Link"),
         FEEDBACK("feedback", "Feedback"),
         FAN("fan", "Fan Curve"),
+        PERF("perf", "Adaptive Perf"),
+        AYN("ayn", "AYN Combos"),
+        AUTOLAUNCH("autolaunch", "Boot & Background Apps"),
     }
 
     private val sections = mapOf(
         "pin_mode" to Section.PIN,
         "pin_managed" to Section.PIN,
+        "ime_rebind_fix" to Section.PIN,
         "deadzone" to Section.MOUSE,
         "pointer_speed" to Section.MOUSE,
         "scroll_speed" to Section.MOUSE,
         "daemon_on_boot" to Section.MOUSE,
         "lock_suspend" to Section.MOUSE,
+        "mouse_rotate_dpad" to Section.MOUSE,
         "odin_key_first" to Section.MOUSE,
         "odin_key_second" to Section.MOUSE,
         "rotation_mode" to Section.ROTATION,
         "rotation_hint" to Section.ROTATION,
         "rotation_bottom" to Section.ROTATION,
+        "rotation_reverse_in_cycle" to Section.ROTATION,
         "density_presets" to Section.DENSITY,
         "volume_link" to Section.VOLUME,
         "volume_offset" to Section.VOLUME,
@@ -38,9 +44,23 @@ object Export {
         "fan_slew_down" to Section.FAN,
         "fan_guard_c" to Section.FAN,
         "fan_guard_s" to Section.FAN,
+        "fan_zero_battery" to Section.FAN,
+        "fan_zero_off_c" to Section.FAN,
+        "fan_zero_on_c" to Section.FAN,
+        "perf_adaptive" to Section.PERF,
+        "ayn_focus_combos" to Section.AYN,
+        "ayn_focus_moves_pad" to Section.AYN,
+        "ayn_home_double_recents" to Section.AYN,
+        "ayn_back_gestures" to Section.AYN,
+        "ayn_home_skip_bdsa" to Section.AYN,
+        "autolaunch_apps" to Section.AUTOLAUNCH,
     )
 
-    private val floats = setOf("deadzone", "pointer_speed", "scroll_speed", "fan_tau", "fan_hyst", "fan_slew_up", "fan_slew_down", "fan_guard_c")
+    private val floats = setOf(
+        "deadzone", "pointer_speed", "scroll_speed",
+        "fan_tau", "fan_hyst", "fan_slew_up", "fan_slew_down", "fan_guard_c",
+        "fan_zero_off_c", "fan_zero_on_c",
+    )
     private const val FORMAT = 1
 
     fun export(ctx: Context, s: Set<Section>): String {

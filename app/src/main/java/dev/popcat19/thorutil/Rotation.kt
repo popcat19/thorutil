@@ -17,12 +17,18 @@ import android.view.WindowManager
 // Landscape tile (system force_landscape) adds a higher MAGNIFICATION_OVERLAY requesting
 // landscape, which wins, so it is switched off while a fixed mode is held and restored
 // afterwards.
-enum class RotationMode(val id: Int, val label: String, val orientation: Int) {
-    AUTO(0, "Auto", ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED),
-    PORTRAIT(1, "Portrait", ActivityInfo.SCREEN_ORIENTATION_PORTRAIT),
-    LANDSCAPE(2, "Landscape", ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+enum class RotationMode(val id: Int, val label: String, val shortLabel: String, val orientation: Int) {
+    AUTO(0, "Auto", "Auto", ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED),
+    PORTRAIT(1, "Portrait", "Port", ActivityInfo.SCREEN_ORIENTATION_PORTRAIT),
+    REVERSE_PORTRAIT(3, "Reverse Portrait", "Rev", ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT),
+    LANDSCAPE(2, "Landscape", "Land", ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
 
-    fun next() = entries[(ordinal + 1) % entries.size]
+    fun next(includeReverse: Boolean = false): RotationMode {
+        val list = if (includeReverse) listOf(AUTO, PORTRAIT, REVERSE_PORTRAIT, LANDSCAPE)
+        else listOf(AUTO, PORTRAIT, LANDSCAPE)
+        val idx = list.indexOf(this)
+        return list[(idx + 1) % list.size]
+    }
 
     companion object {
         fun of(id: Int) = entries.firstOrNull { it.id == id } ?: AUTO

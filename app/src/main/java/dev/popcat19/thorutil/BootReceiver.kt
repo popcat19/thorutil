@@ -6,28 +6,40 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.util.Log
 
-// Daemon start is handled by ThorApp once Shizuku is up. This receiver covers two gaps:
-// 1. Boot with root but no Shizuku: start the daemon via su.
+// Daemon start is handled by ThorApp once Shizuku is up. This receiver covers:
+// 1. Boot with root but no Shizuku: start daemons via su.
 // 2. Shizuku started after ThorUtil and sent no binder: restart the app so Shizuku sees it start.
+// 3. Boot autolaunch & battery whitelisting for managed background apps.
+// 4. App upgrade notification for unseen preference changelog entries.
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         KeeperService.sync(context)
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            Changelog.notifyIfPending(context)
+            return
+        }
+        val hasAuto = AutoLaunch.list(context).isNotEmpty()
         if (intent.action == Intent.ACTION_BOOT_COMPLETED &&
-            (Prefs.daemonOnBoot(context) || Prefs.fanManaged(context))
+            (Prefs.daemonOnBoot(context) || Prefs.fanManaged(context) || Prefs.perfAdaptive(context) || hasAuto)
         ) {
             val pending = goAsync()
             Thread {
                 val shizuku = shizukuInstalled(context) && waitForShizuku()
                 val needMouse = Prefs.daemonOnBoot(context) && !Daemon.state().running
                 val needFan = Prefs.fanManaged(context) && !FanDaemon.state().running
-                if (!shizuku && (needMouse || needFan)) {
+                val needPerf = Prefs.perfAdaptive(context) && !PerfDaemon.state().running
+                if (!shizuku && (needMouse || needFan || needPerf)) {
                     if (Priv.rootReady()) {
                         if (needMouse) Daemon.start(context)
                         if (needFan) FanDaemon.start(context)
+                        if (needPerf) PerfDaemon.start(context)
                     } else if (shizukuInstalled(context)) {
                         Log.i(TAG, "no shizuku binder after boot, restarting process")
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }
+                }
+                if (hasAuto && (shizuku || Priv.rootReady())) {
+                    AutoLaunch.runBootLaunch(context)
                 }
                 pending.finish()
             }.start()

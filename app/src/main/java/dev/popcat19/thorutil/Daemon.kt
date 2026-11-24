@@ -34,7 +34,8 @@ object Daemon {
     fun start(ctx: Context): Boolean {
         stopped = false
         if (state().running) return true
-        val args = "-d ${Prefs.deadzone(ctx)} -p ${Prefs.pointerSpeed(ctx)} -s ${Prefs.scrollSpeed(ctx)}"
+        val dpad = if (Prefs.mouseRotateDpad(ctx)) " -r" else ""
+        val args = "-d ${Prefs.deadzone(ctx)} -p ${Prefs.pointerSpeed(ctx)} -s ${Prefs.scrollSpeed(ctx)}$dpad"
         // A root-run daemon (root Shizuku or su) leaves root-owned files a shell-run one cannot write.
         val cmd = "rm -f $LOG $TOUCH; setsid ${binary(ctx)} $args </dev/null >$LOG 2>&1 & sleep 0.3; " +
             "p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ]"

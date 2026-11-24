@@ -20,6 +20,8 @@ enum class PinMode(val id: Int, val label: String) {
             return if (Settings.System.getInt(cr, IME_SHOW_ON_SECOND, 0) == 1) BOTTOM else TOP
         }
 
+        const val SECOND_RESUME = "second_resume"
+
         fun apply(mode: PinMode): Boolean {
             val cmd = when (mode) {
                 OFF -> "settings put system $IME_FIXED 0"
@@ -27,6 +29,17 @@ enum class PinMode(val id: Int, val label: String) {
                 BOTTOM -> "settings put system $IME_SHOW_ON_SECOND 1 && settings put system $IME_FIXED 1"
             }
             return Priv.sh(cmd).code == 0
+        }
+
+        // Odin's DisplayContent caches a static mImeInputTargetForSecond that goes stale after
+        // rotation or bottom-screen activity changes. Re-writing ime_show_on_second fires WMS
+        // message 47 (updateInputMethodTargetWindow -> resetImeInputTargetForSecond) without
+        // hiding an active IME, rebinding it to the live top window on the pinned display.
+        fun rebindIme(ctx: Context): Boolean {
+            val cur = current(ctx)
+            if (cur == OFF) return false
+            val v = if (cur == BOTTOM) 1 else 0
+            return Priv.sh("settings put system $IME_SHOW_ON_SECOND $v").code == 0
         }
     }
 }

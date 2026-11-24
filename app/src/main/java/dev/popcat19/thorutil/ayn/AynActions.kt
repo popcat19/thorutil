@@ -1,13 +1,14 @@
 package dev.popcat19.thorutil.ayn
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import dev.popcat19.thorutil.Daemon
+import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.Priv
+import dev.popcat19.thorutil.brightness.BrightnessLink
 import dev.popcat19.thorutil.feedback.Feedback
 import dev.popcat19.thorutil.feedback.FeedbackType
-import dev.popcat19.thorutil.brightness.BrightnessLink
-import android.os.SystemClock
 
 // Shell-side actions. screen_focus_lock steers gamepad keys only (Odin Settings maps it
 // to persist.sys.input.dispaly for inputflinger). Touch never moves pad focus, but the
@@ -21,6 +22,9 @@ object AynActions {
 
     @Volatile
     private var focusAt = 0L
+
+    @Volatile
+    private var pointerBottom = false
 
     private fun name(d: Int) = if (d == BOTTOM) "bottom" else "top"
 
@@ -39,10 +43,17 @@ object AynActions {
         when (a) {
             AynAction.FOCUS_TOP -> focus(ctx, TOP)
             AynAction.FOCUS_BOTTOM -> focus(ctx, BOTTOM)
-            AynAction.FOCUS_SWAP -> focus(ctx, if (padDisplay() == BOTTOM) TOP else BOTTOM)
+            AynAction.FOCUS_SWAP -> {
+                val cur = if (Prefs.aynFocusMovesPad(ctx)) padDisplay() else if (pointerBottom) BOTTOM else TOP
+                focus(ctx, if (cur == BOTTOM) TOP else BOTTOM)
+            }
             AynAction.SWAP_WINDOWS -> {
                 swapWindows()
                 Feedback.show(ctx, FeedbackType.WINDOWS, "Windows swapped", false, padDisplay())
+            }
+            AynAction.PREV_APP -> {
+                val d = targetDisplay()
+                if (prevApp(d)) Feedback.show(ctx, FeedbackType.PREV_APP, "Previous app", d == TOP, d)
             }
             AynAction.PREV_APP_TOP -> {
                 if (prevApp(TOP)) Feedback.show(ctx, FeedbackType.PREV_APP, "Previous app", true, TOP)
@@ -71,23 +82,62 @@ object AynActions {
     }
 
     // Null display = lone Home, sent to the touched-or-focused screen. Pad focus is left alone.
-    // Launch the home intent directly instead of `input keyevent HOME`, which fires Android's
-    // global CLOSE_SYSTEM_DIALOGS broadcast and dismisses the AYN menu (BDSA) on the bottom screen.
+    // Resolves the default launcher component and launches it directly so Android never fires
+    // CLOSE_SYSTEM_DIALOGS(homekey) (which dismisses BDSA). When aynHomeSkipBdsa is enabled and
+    // BDSA/DSA holds focus on display 4, lone Home routes to top instead of clearing the overlay.
     fun home(ctx: Context, display: Int?) {
-        val d = display ?: targetDisplay()
+        val d = when {
+            display != null -> display
+            Prefs.aynHomeSkipBdsa(ctx) && bdsaVisible() -> TOP
+            else -> targetDisplay()
+        }
         val cat = if (d == BOTTOM) "android.intent.category.SECONDARY_HOME" else "android.intent.category.HOME"
         Log.i(TAG, "home -> $d ($cat)")
-        val r = Priv.sh("am start --display $d -a android.intent.action.MAIN -c $cat -f 0x10200000")
-        if (r.code != 0 || r.out.contains("Error:")) Priv.sh("input -d $d keyevent HOME")
+        val comp = resolveHomeComponent(cat)
+        val r = if (comp != null) {
+            Priv.sh("am start --display $d -f 0x10200000 -n '$comp'")
+        } else {
+            Priv.sh("am start --display $d -a android.intent.action.MAIN -c $cat -f 0x10200000")
+        }
+        if (r.code != 0 || r.out.contains("Error:")) {
+            val r2 = Priv.sh("am start --display $d -a android.intent.action.MAIN -c $cat -f 0x10200000")
+            if (r2.code != 0 || r2.out.contains("Error:")) Priv.sh("input -d $d keyevent HOME")
+        }
         if (display != null) Feedback.show(ctx, FeedbackType.HOME, "Home: ${name(d)}", d == TOP, d)
     }
 
-    // Gamepad focus moves the emu pointer too, so stick and buttons stay on one screen.
+    private fun resolveHomeComponent(cat: String): String? {
+        val out = Priv.sh("cmd package resolve-activity --brief -a android.intent.action.MAIN -c $cat").out
+        val line = out.lines().map { it.trim() }.lastOrNull { '/' in it && !it.startsWith("priority=") } ?: return null
+        val safe = line.filter { it.isLetterOrDigit() || it in "._/$" }
+        return safe.takeIf { '/' in it }
+    }
+
+    private fun bdsaVisible(): Boolean {
+        val focus = Priv.sh("dumpsys window displays | grep -E 'Display: mDisplayId=|mCurrentFocus='").out
+        var display = -1
+        for (line in focus.lines()) {
+            Regex("mDisplayId=(\\d+)").find(line)?.let { display = it.groupValues[1].toInt() }
+            if (display == BOTTOM && line.contains("mCurrentFocus=")) {
+                return line.contains("betterdualscreenassistant") ||
+                    line.contains("dualscreen.assistant") ||
+                    line.contains("odin.gameassistant")
+            }
+        }
+        return false
+    }
+
+    // Moves the mouse pointer; moves gamepad screen_focus_lock only when aynFocusMovesPad is on.
     fun focus(ctx: Context, display: Int) {
-        Priv.sh("settings put system $FOCUS_LOCK ${if (display == BOTTOM) 2 else 1}")
-        focusAt = SystemClock.uptimeMillis()
+        pointerBottom = display == BOTTOM
+        val movePad = Prefs.aynFocusMovesPad(ctx)
+        if (movePad) {
+            Priv.sh("settings put system $FOCUS_LOCK ${if (display == BOTTOM) 2 else 1}")
+            focusAt = SystemClock.uptimeMillis()
+        }
         Daemon.pointer(display == BOTTOM)
-        Feedback.show(ctx, FeedbackType.FOCUS, "Focus: ${name(display)}", display == TOP, display)
+        val label = if (movePad) "Focus: ${name(display)}" else "Pointer: ${name(display)}"
+        Feedback.show(ctx, FeedbackType.FOCUS, label, display == TOP, display)
     }
 
     // Last touched screen if touched after the last focus action, else pad focus.

@@ -40,6 +40,7 @@ object FanDaemon {
         val rpm: Long,
         val junctC: Double = 0.0,
         val guarded: Boolean = false,
+        val zeroStopped: Boolean = false,
         val yieldedMode: Int? = null,
     )
 
@@ -104,6 +105,7 @@ object FanDaemon {
             rpm = f[3].toLongOrNull() ?: 0,
             junctC = f.getOrNull(4)?.toDoubleOrNull() ?: 0.0,
             guarded = f.getOrNull(5) == "1",
+            zeroStopped = f.getOrNull(6) == "1",
             yieldedMode = y,
         )
     }
@@ -137,9 +139,12 @@ object FanDaemon {
         }
         if (state().running) return syncSuspend()
         val curve = Prefs.fanCurve(ctx)
+        val zeroArgs = if (Prefs.fanZeroBattery(ctx)) {
+            " -z ${Prefs.fanZeroOffC(ctx)} -Z ${Prefs.fanZeroOnC(ctx)}"
+        } else ""
         val args = "-c $curve -t ${Prefs.fanTau(ctx)} -h ${Prefs.fanHyst(ctx)} " +
             "-u ${Prefs.fanSlewUp(ctx)} -D ${Prefs.fanSlewDown(ctx)} " +
-            "-g ${Prefs.fanGuardC(ctx)} -G ${Prefs.fanGuardS(ctx)}"
+            "-g ${Prefs.fanGuardC(ctx)} -G ${Prefs.fanGuardS(ctx)}$zeroArgs"
         val suspendCmd = if (screenOff || yieldedMode != null) "touch $SUSPEND; chmod 666 $SUSPEND;" else "rm -f $SUSPEND;"
         val cmd = "rm -f $STATE $LOG; $suspendCmd setsid ${binary(ctx)} $args </dev/null >$LOG 2>&1 & sleep 0.3; " +
             "p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ]"

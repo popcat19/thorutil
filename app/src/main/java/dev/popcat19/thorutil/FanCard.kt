@@ -37,7 +37,7 @@ private fun format(points: List<Point>) =
     points.sortedBy { it.temp }.joinToString(",") { "${it.temp.toInt()}:${it.pct.toInt()}" }
 
 @Composable
-fun FanCard() {
+fun FanCard(epoch: Int = 0) {
     val ctx = LocalContext.current
     var managed by remember { mutableStateOf(Prefs.fanManaged(ctx)) }
     val points = remember {
@@ -49,6 +49,9 @@ fun FanCard() {
     var down by remember { mutableStateOf(Prefs.fanSlewDown(ctx)) }
     var guardC by remember { mutableStateOf(Prefs.fanGuardC(ctx)) }
     var guardS by remember { mutableStateOf(Prefs.fanGuardS(ctx).toFloat()) }
+    var zeroBat by remember(epoch) { mutableStateOf(Prefs.fanZeroBattery(ctx)) }
+    var zeroOff by remember { mutableStateOf(Prefs.fanZeroOffC(ctx)) }
+    var zeroOn by remember { mutableStateOf(Prefs.fanZeroOnC(ctx)) }
     var live by remember { mutableStateOf<FanDaemon.State?>(null) }
     var dirty by remember { mutableStateOf(false) }
 
@@ -68,6 +71,9 @@ fun FanCard() {
         Prefs.setFanSlewDown(ctx, down)
         Prefs.setFanGuardC(ctx, guardC)
         Prefs.setFanGuardS(ctx, guardS.toInt())
+        Prefs.setFanZeroBattery(ctx, zeroBat)
+        Prefs.setFanZeroOffC(ctx, zeroOff)
+        Prefs.setFanZeroOnC(ctx, zeroOn)
         if (Prefs.fanManaged(ctx)) FanDaemon.restart(ctx)
     }.start()
 
@@ -97,6 +103,7 @@ fun FanCard() {
                     !it.running -> "Daemon not running"
                     else -> buildString {
                         append("Soak %.1f °C · Junct %.1f °C → %d%% · %d rpm".format(it.soakC, it.junctC, it.pct, it.rpm))
+                        if (it.zeroStopped) append(" · 0% battery")
                         if (it.guarded) append(" · GUARD")
                     }
                 }
@@ -119,6 +126,28 @@ fun FanCard() {
             Text("Junction guard", style = MaterialTheme.typography.labelLarge)
             NumberSetting("Override temp", guardC, 80f..105f, 1f, 0, "°C", slider = false) { guardC = it; dirty = true }
             NumberSetting("Hold time", guardS, 0f..60f, 1f, 0, "s", slider = false) { guardS = it; dirty = true }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("0% fan on battery when cool")
+                    Text("Stops fan off charger below soak threshold; resumes immediately on plug-in or load", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = zeroBat, onCheckedChange = {
+                    zeroBat = it
+                    Prefs.setFanZeroBattery(ctx, it)
+                    if (Prefs.fanManaged(ctx)) Thread { FanDaemon.restart(ctx) }.start()
+                })
+            }
+            if (zeroBat) {
+                NumberSetting("Stop below (soak)", zeroOff, 32f..55f, 1f, 0, "°C", slider = false) {
+                    zeroOff = it
+                    if (zeroOn <= it + 2f) zeroOn = it + 4f
+                    dirty = true
+                }
+                NumberSetting("Resume above (soak)", zeroOn, 36f..60f, 1f, 0, "°C", slider = false) {
+                    zeroOn = it.coerceAtLeast(zeroOff + 2f)
+                    dirty = true
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = dirty, onClick = { apply(); dirty = false }) { Text("Apply") }
                 OutlinedButton(onClick = {
@@ -129,6 +158,8 @@ fun FanCard() {
                     down = Prefs.FAN_SLEW_DOWN_DEFAULT
                     guardC = Prefs.FAN_GUARD_C_DEFAULT
                     guardS = Prefs.FAN_GUARD_S_DEFAULT.toFloat()
+                    zeroOff = Prefs.FAN_ZERO_OFF_C_DEFAULT
+                    zeroOn = Prefs.FAN_ZERO_ON_C_DEFAULT
                     dirty = true
                 }) { Text("Defaults") }
             }

@@ -25,7 +25,7 @@ class RotationTileService : TileService() {
     }
 
     private fun cycle() {
-        val mode = Prefs.rotation(this).next()
+        val mode = Prefs.rotation(this).next(Prefs.rotationReverseInCycle(this))
         Prefs.setRotation(this, mode)
         KeeperService.sync(applicationContext)
         Feedback.show(this, FeedbackType.ROTATION, "Rotation: ${mode.label}", mode == RotationMode.AUTO)

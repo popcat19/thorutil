@@ -5,7 +5,7 @@ import android.content.pm.PackageManager
 import android.util.Log
 import rikka.shizuku.Shizuku
 
-// Starts the daemon whenever Shizuku becomes usable: at boot once Shizuku's own
+// Starts daemons whenever Shizuku becomes usable: at boot once Shizuku's own
 // start-on-boot finishes, after a Shizuku restart, or right after permission is granted.
 // ShizukuProvider wakes this process when the server comes up.
 class ThorApp : Application() {
@@ -21,7 +21,7 @@ class ThorApp : Application() {
     }
 
     private fun kick(why: String) {
-        if (!Prefs.daemonOnBoot(this) && !Prefs.fanManaged(this)) return
+        if (!Prefs.daemonOnBoot(this) && !Prefs.fanManaged(this) && !Prefs.perfAdaptive(this)) return
         Thread {
             if (!Priv.shizukuReady()) return@Thread Unit.also { Log.i(TAG, "$why: shizuku not ready") }
             if (Prefs.daemonOnBoot(this) && !Daemon.state().running) {
@@ -29,6 +29,9 @@ class ThorApp : Application() {
             }
             if (Prefs.fanManaged(this) && !FanDaemon.stopped && !FanDaemon.state().running) {
                 Log.i(TAG, "$why: start fan -> ${FanDaemon.start(this)}")
+            }
+            if (Prefs.perfAdaptive(this) && !PerfDaemon.stopped && !PerfDaemon.state().running) {
+                Log.i(TAG, "$why: start perf -> ${PerfDaemon.start(this)}")
             }
         }.start()
     }

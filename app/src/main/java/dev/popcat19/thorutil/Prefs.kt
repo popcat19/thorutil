@@ -31,6 +31,21 @@ object Prefs {
     private const val FAN_GUARD_S = "fan_guard_s"
     private const val SAVED_FAN_MODE = "saved_fan_mode"
     private const val SAVED_FAN_SPEED = "saved_fan_speed"
+    private const val FAN_ZERO_BATTERY = "fan_zero_battery"
+    private const val FAN_ZERO_OFF_C = "fan_zero_off_c"
+    private const val FAN_ZERO_ON_C = "fan_zero_on_c"
+    private const val PERF_ADAPTIVE = "perf_adaptive"
+    private const val SAVED_PERF_MODE = "saved_perf_mode"
+    private const val IME_REBIND_FIX = "ime_rebind_fix"
+    private const val ROTATION_REVERSE_CYCLE = "rotation_reverse_in_cycle"
+    private const val MOUSE_ROTATE_DPAD = "mouse_rotate_dpad"
+    private const val AYN_FOCUS_COMBOS = "ayn_focus_combos"
+    private const val AYN_FOCUS_MOVES_PAD = "ayn_focus_moves_pad"
+    private const val AYN_HOME_DOUBLE_RECENTS = "ayn_home_double_recents"
+    private const val AYN_BACK_GESTURES = "ayn_back_gestures"
+    private const val AYN_HOME_SKIP_BDSA = "ayn_home_skip_bdsa"
+    private const val AUTOLAUNCH_APPS = "autolaunch_apps"
+    private const val CHANGELOG_SEEN = "changelog_seen"
     private const val LAST_NATIVE_DIR = "last_native_dir"
 
     // Board soak (xo-therm) curve: flat quiet 20% through idle/light loads (<=48 °C),
@@ -42,6 +57,8 @@ object Prefs {
     const val FAN_SLEW_DOWN_DEFAULT = 0.5f
     const val FAN_GUARD_C_DEFAULT = 98f
     const val FAN_GUARD_S_DEFAULT = 20
+    const val FAN_ZERO_OFF_C_DEFAULT = 44f
+    const val FAN_ZERO_ON_C_DEFAULT = 48f
 
     private fun sp(ctx: Context): SharedPreferences =
         ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
@@ -123,6 +140,52 @@ object Prefs {
     // Odin fan_speed before ThorUtil set -1 to suppress Odin custom duty writes.
     fun savedFanSpeed(ctx: Context) = sp(ctx).getInt(SAVED_FAN_SPEED, 35)
     fun setSavedFanSpeed(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_FAN_SPEED, v).apply()
+
+    // mkDefault prefs: legacy defaults preserved for downstream users until opted in via Changelog.
+    fun fanZeroBattery(ctx: Context) = sp(ctx).getBoolean(FAN_ZERO_BATTERY, false)
+    fun setFanZeroBattery(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(FAN_ZERO_BATTERY, v).apply()
+
+    fun fanZeroOffC(ctx: Context) = sp(ctx).getFloat(FAN_ZERO_OFF_C, FAN_ZERO_OFF_C_DEFAULT)
+    fun setFanZeroOffC(ctx: Context, v: Float) = sp(ctx).edit().putFloat(FAN_ZERO_OFF_C, v).apply()
+
+    fun fanZeroOnC(ctx: Context) = sp(ctx).getFloat(FAN_ZERO_ON_C, FAN_ZERO_ON_C_DEFAULT)
+    fun setFanZeroOnC(ctx: Context, v: Float) = sp(ctx).edit().putFloat(FAN_ZERO_ON_C, v).apply()
+
+    fun perfAdaptive(ctx: Context) = sp(ctx).getBoolean(PERF_ADAPTIVE, false)
+    fun setPerfAdaptive(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(PERF_ADAPTIVE, v).apply()
+
+    fun savedPerfMode(ctx: Context) = sp(ctx).getInt(SAVED_PERF_MODE, 0)
+    fun setSavedPerfMode(ctx: Context, v: Int) = sp(ctx).edit().putInt(SAVED_PERF_MODE, v).apply()
+
+    fun imeRebindFix(ctx: Context) = sp(ctx).getBoolean(IME_REBIND_FIX, false)
+    fun setImeRebindFix(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(IME_REBIND_FIX, v).apply()
+
+    fun rotationReverseInCycle(ctx: Context) = sp(ctx).getBoolean(ROTATION_REVERSE_CYCLE, false)
+    fun setRotationReverseInCycle(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(ROTATION_REVERSE_CYCLE, v).apply()
+
+    fun mouseRotateDpad(ctx: Context) = sp(ctx).getBoolean(MOUSE_ROTATE_DPAD, false)
+    fun setMouseRotateDpad(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(MOUSE_ROTATE_DPAD, v).apply()
+
+    fun aynFocusCombos(ctx: Context) = sp(ctx).getBoolean(AYN_FOCUS_COMBOS, true)
+    fun setAynFocusCombos(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_FOCUS_COMBOS, v).apply()
+
+    fun aynFocusMovesPad(ctx: Context) = sp(ctx).getBoolean(AYN_FOCUS_MOVES_PAD, true)
+    fun setAynFocusMovesPad(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_FOCUS_MOVES_PAD, v).apply()
+
+    fun aynHomeDoubleRecents(ctx: Context) = sp(ctx).getBoolean(AYN_HOME_DOUBLE_RECENTS, false)
+    fun setAynHomeDoubleRecents(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_HOME_DOUBLE_RECENTS, v).apply()
+
+    fun aynBackGestures(ctx: Context) = sp(ctx).getBoolean(AYN_BACK_GESTURES, false)
+    fun setAynBackGestures(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_BACK_GESTURES, v).apply()
+
+    fun aynHomeSkipBdsa(ctx: Context) = sp(ctx).getBoolean(AYN_HOME_SKIP_BDSA, false)
+    fun setAynHomeSkipBdsa(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_HOME_SKIP_BDSA, v).apply()
+
+    fun autoLaunchApps(ctx: Context): String = sp(ctx).getString(AUTOLAUNCH_APPS, "[]") ?: "[]"
+    fun setAutoLaunchApps(ctx: Context, json: String) = sp(ctx).edit().putString(AUTOLAUNCH_APPS, json).apply()
+
+    fun changelogSeen(ctx: Context): String = sp(ctx).getString(CHANGELOG_SEEN, "{}") ?: "{}"
+    fun setChangelogSeen(ctx: Context, json: String) = sp(ctx).edit().putString(CHANGELOG_SEEN, json).apply()
 
     // Tracks nativeLibraryDir so daemons restart onto the new binary after an APK upgrade.
     fun lastNativeDir(ctx: Context): String = sp(ctx).getString(LAST_NATIVE_DIR, "") ?: ""
