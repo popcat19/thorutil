@@ -15,8 +15,8 @@ android {
         applicationId = "dev.popcat19.thorutil"
         minSdk = 33
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.4.6"
+        versionCode = 12
+        versionName = "0.4.7"
         ndk { abiFilters += "arm64-v8a" }
     }
 
@@ -91,7 +91,8 @@ fun daemonTask(name: String, src: String, lib: String) = tasks.register<Exec>(na
 
 val buildDaemon = daemonTask("buildDaemon", "thor-mouse.c", "libthormouse.so")
 val buildFan = daemonTask("buildFan", "thor-fan.c", "libthorfan.so")
+val buildPerf = daemonTask("buildPerf", "thor-perf.c", "libthorperf.so")
 
 android.sourceSets.getByName("main").jniLibs.srcDir(daemonOut)
 
-tasks.named("preBuild") { dependsOn(buildDaemon, buildFan) }
+tasks.named("preBuild") { dependsOn(buildDaemon, buildFan, buildPerf) }
