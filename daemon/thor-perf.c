@@ -22,10 +22,12 @@
 #define TICK_S 2
 #define LOG_TICKS 30
 
-// Promote quickly so games/emulators never stutter; demote patiently (20 s hold).
+// Promote quickly on sustained load (4 s) so brief background spikes stay in Normal;
+// demote patiently (20 s hold) so games/emulators never stutter.
 #define UP_PERF_CPU 30
-#define UP_PERF_CORE 60
+#define UP_PERF_CORE 65
 #define UP_PERF_GPU 30
+#define UP_PERF_HOLD_TICKS 2
 #define UP_HIGH_CPU 60
 #define UP_HIGH_CORE 85
 #define UP_HIGH_GPU 65
@@ -42,6 +44,7 @@
 static const char *state_path = "/data/local/tmp/thorutil-perf.state";
 static const char *lock_path = "/data/local/tmp/thorutil-perf.lock";
 static const char *suspend_path = "/data/local/tmp/thorutil-perf.suspend";
+static const char *change_path = "/data/local/tmp/thorutil-perf.change";
 
 static volatile sig_atomic_t quit;
 
@@ -106,7 +109,19 @@ static int read_gpu_busy(void) {
     return v < 0 ? 0 : v > 100 ? 100 : v;
 }
 
+static void mark_change(void) {
+    int fd = open(change_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    if (fd >= 0) {
+        char buf[32];
+        int n = snprintf(buf, sizeof buf, "%ld\n", (long)time(NULL));
+        if (n > 0) (void)!write(fd, buf, (size_t)n);
+        close(fd);
+        chmod(change_path, 0666);
+    }
+}
+
 static void apply_mode(int mode) {
+    mark_change();
     pid_t pid = fork();
     if (pid == 0) {
         int nul = open("/dev/null", O_RDWR);
@@ -152,6 +167,7 @@ int main(void) {
     read_cpu(&prev_agg, prev_cores, &prev_n);
 
     int mode = -1;
+    int perf_ticks = 0;
     int high_ticks = 0;
     int cool_ticks = 0;
     int was_suspended = 0;
@@ -184,6 +200,7 @@ int main(void) {
         int suspended = access(suspend_path, F_OK) == 0;
         if (suspended != was_suspended) {
             was_suspended = suspended;
+            perf_ticks = 0;
             high_ticks = 0;
             cool_ticks = 0;
             fprintf(stderr, "perf: %s\n", suspended ? "suspended" : "resumed");
@@ -204,13 +221,14 @@ int main(void) {
         int next = mode < 0 ? 0 : mode;
         if (want_high) {
             cool_ticks = 0;
+            perf_ticks++;
             if (++high_ticks >= UP_HIGH_HOLD_TICKS) next = 2;
             else if (next < 1) next = 1;
         } else if (want_perf) {
             high_ticks = 0;
             if (next < 1) {
                 cool_ticks = 0;
-                next = 1;
+                if (++perf_ticks >= UP_PERF_HOLD_TICKS) next = 1;
             } else if (next == 2) {
                 if (gpu_pct < DOWN_PERF_GPU && cpu_pct < DOWN_PERF_CPU && core_pct < DOWN_PERF_CORE) {
                     if (++cool_ticks >= DOWN_HOLD_TICKS) { next = 1; cool_ticks = 0; }
@@ -219,6 +237,7 @@ int main(void) {
                 }
             }
         } else {
+            perf_ticks = 0;
             high_ticks = 0;
             if (next == 2) {
                 if (gpu_pct < DOWN_PERF_GPU && cpu_pct < DOWN_PERF_CPU && core_pct < DOWN_PERF_CORE) {

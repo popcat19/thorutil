@@ -94,24 +94,32 @@ class KeeperService : Service() {
                     Log.i(TAG, "upgrade: restart perf -> ${PerfDaemon.restart(this@KeeperService)}")
                 }
             } else {
-                if (Prefs.daemonOnBoot(this@KeeperService) && !Daemon.stopped && !Daemon.state().running) {
-                    val ok = Daemon.start(this@KeeperService)
-                    Log.i(TAG, "daemon watchdog: start -> $ok")
-                }
-                if (Prefs.fanManaged(this@KeeperService) && !FanDaemon.stopped && !FanDaemon.state().running) {
-                    val ok = FanDaemon.start(this@KeeperService)
-                    Log.i(TAG, "fan watchdog: start -> $ok")
-                }
-                if (Prefs.perfAdaptive(this@KeeperService) && !PerfDaemon.stopped && !PerfDaemon.state().running) {
-                    val ok = PerfDaemon.start(this@KeeperService)
-                    Log.i(TAG, "perf watchdog: start -> $ok")
+                val wantMouse = Prefs.daemonOnBoot(this@KeeperService) && !Daemon.stopped
+                val wantFan = Prefs.fanManaged(this@KeeperService) && !FanDaemon.stopped
+                val wantPerf = Prefs.perfAdaptive(this@KeeperService) && !PerfDaemon.stopped
+                if (wantMouse || wantFan || wantPerf) {
+                    // Single shell call checks all 3 daemons so root-fallback avoids spamming su.
+                    val check = Priv.sh(
+                        "m=\$(cut -d' ' -f2 ${Daemon.STATE} 2>/dev/null); [ -n \"\$m\" ] && [ -d \"/proc/\$m\" ] && echo M; " +
+                            "f=\$(cut -d' ' -f1 ${FanDaemon.STATE} 2>/dev/null); [ -n \"\$f\" ] && [ -d \"/proc/\$f\" ] && echo F; " +
+                            "p=\$(cut -d' ' -f1 ${PerfDaemon.STATE} 2>/dev/null); [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ] && echo P; true"
+                    ).out.lines().map { it.trim() }.toSet()
+                    if (wantMouse && "M" !in check) {
+                        Log.i(TAG, "daemon watchdog: start -> ${Daemon.start(this@KeeperService)}")
+                    }
+                    if (wantFan && "F" !in check) {
+                        Log.i(TAG, "fan watchdog: start -> ${FanDaemon.start(this@KeeperService)}")
+                    }
+                    if (wantPerf && "P" !in check) {
+                        Log.i(TAG, "perf watchdog: start -> ${PerfDaemon.start(this@KeeperService)}")
+                    }
                 }
             }
-            if (++watchTick % 3 == 0 && AutoLaunch.hasKeepAlive(this@KeeperService)) {
+            if (++watchTick % 2 == 0 && AutoLaunch.hasKeepAlive(this@KeeperService)) {
                 val interactive = getSystemService(PowerManager::class.java).isInteractive
                 AutoLaunch.watchdogTick(this@KeeperService, interactive)
             }
-            handler.postDelayed(this, 10_000)
+            handler.postDelayed(this, 30_000)
         }
     }
 

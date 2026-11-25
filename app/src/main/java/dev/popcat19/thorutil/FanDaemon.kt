@@ -181,6 +181,12 @@ object FanDaemon {
                 // Already in our mode; keep current state.
             }
             else -> {
+                if (yieldedMode == null && Prefs.perfAdaptive(ctx) && PerfDaemon.recentlyChanged()) {
+                    Log.i(TAG, "ignoring FanTile bounce (${modeName(mode)}) after adaptive perf switch; restoring Custom")
+                    suppressOdinDuty(ctx)
+                    writeMode(MODE_CUSTOM)
+                    return
+                }
                 Log.i(TAG, "profile -> ${modeName(mode)}: yielding to Odin")
                 yieldedMode = mode
                 syncSuspend()

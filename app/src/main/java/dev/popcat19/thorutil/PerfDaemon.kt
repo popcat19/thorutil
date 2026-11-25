@@ -11,6 +11,7 @@ import java.io.File
 object PerfDaemon {
     const val STATE = "/data/local/tmp/thorutil-perf.state"
     private const val SUSPEND = "/data/local/tmp/thorutil-perf.suspend"
+    private const val CHANGE = "/data/local/tmp/thorutil-perf.change"
     private const val LOG = "/data/local/tmp/thorutil-perf.log"
     private const val TAG = "ThorUtil/Perf"
     const val MODE_KEY = "performance_mode"
@@ -43,6 +44,14 @@ object PerfDaemon {
 
     fun currentMode(ctx: Context): Int =
         Settings.System.getInt(ctx.contentResolver, MODE_KEY, 0)
+
+    // SystemUI's FanTile overwrites fan_mode whenever performance_mode changes.
+    // Returns true if thor-perf wrote performance_mode within the last 3 seconds.
+    fun recentlyChanged(): Boolean {
+        val ts = Priv.sh("cat $CHANGE 2>/dev/null").out.trim().toLongOrNull() ?: return false
+        val now = System.currentTimeMillis() / 1000L
+        return kotlin.math.abs(now - ts) <= 3L
+    }
 
     fun state(): State {
         val r = Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ] && cat $STATE")

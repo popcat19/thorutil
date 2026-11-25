@@ -198,26 +198,34 @@ object Changelog {
     fun notifyIfPending(ctx: Context) {
         val list = pending(ctx)
         if (list.isEmpty()) return
-        val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Preference changelog", NotificationManager.IMPORTANCE_DEFAULT)
-        )
-        val open = PendingIntent.getActivity(
-            ctx,
-            NOTIF_ID,
-            Intent(ctx, MainActivity::class.java)
-                .putExtra(EXTRA_OPEN_CHANGELOG, true)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val notif = Notification.Builder(ctx, CHANNEL)
-            .setSmallIcon(R.drawable.ic_keyboard)
-            .setContentTitle("ThorUtil: ${list.size} new preference options")
-            .setContentText("Tap to review and cherry-pick new defaults without changing existing habits.")
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .build()
-        runCatching { nm.notify(NOTIF_ID, notif) }
+        val app = ctx.applicationContext
+        Thread {
+            if (app.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                Priv.sh("pm grant ${app.packageName} android.permission.POST_NOTIFICATIONS")
+            }
+            val nm = app.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL, "Preference changelog", NotificationManager.IMPORTANCE_DEFAULT)
+            )
+            val open = PendingIntent.getActivity(
+                app,
+                NOTIF_ID,
+                Intent(app, MainActivity::class.java)
+                    .putExtra(EXTRA_OPEN_CHANGELOG, true)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val notif = Notification.Builder(app, CHANNEL)
+                .setSmallIcon(R.drawable.ic_keyboard)
+                .setContentTitle("ThorUtil: ${list.size} new preference options")
+                .setContentText("Tap to review and cherry-pick new defaults without changing existing habits.")
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build()
+            runCatching { nm.notify(NOTIF_ID, notif) }
+        }.start()
     }
 
     fun cancelNotification(ctx: Context) {
