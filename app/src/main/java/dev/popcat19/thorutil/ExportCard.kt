@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.popcat19.thorutil.ayn.AynActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,6 +61,7 @@ fun ExportCard(onImported: () -> Unit = {}) {
                     } else if (PerfDaemon.state().running) {
                         PerfDaemon.stop(ctx)
                     }
+                    if (!Prefs.aynScreenLock(ctx)) AynActions.unlock(ctx, notify = false)
                     n
                 }
             }

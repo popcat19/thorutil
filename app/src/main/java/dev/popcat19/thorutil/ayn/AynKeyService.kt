@@ -9,6 +9,7 @@ import android.util.SparseIntArray
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
+import dev.popcat19.thorutil.Bg
 import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.feedback.Feedback
 import java.util.concurrent.atomic.AtomicBoolean
@@ -126,6 +127,10 @@ class AynKeyService : AccessibilityService() {
         main.removeCallbacks(backHoldRun)
         stopRepeat()
         pendingBrightness.set(0)
+        if (AynActions.lockedDisplay() != null) {
+            val app = applicationContext
+            Bg.post { AynActions.unlock(app, notify = false) }
+        }
         if (Feedback.a11y === this) Feedback.a11y = null
         thread.quitSafely()
         super.onDestroy()

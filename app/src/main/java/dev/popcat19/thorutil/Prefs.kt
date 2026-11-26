@@ -44,6 +44,7 @@ object Prefs {
     private const val AYN_HOME_DOUBLE_RECENTS = "ayn_home_double_recents"
     private const val AYN_BACK_GESTURES = "ayn_back_gestures"
     private const val AYN_HOME_SKIP_BDSA = "ayn_home_skip_bdsa"
+    private const val AYN_SCREEN_LOCK = "ayn_screen_lock"
     private const val AUTOLAUNCH_APPS = "autolaunch_apps"
     private const val CHANGELOG_SEEN = "changelog_seen"
     private const val LAST_NATIVE_DIR = "last_native_dir"
@@ -189,6 +190,9 @@ object Prefs {
 
     fun aynHomeSkipBdsa(ctx: Context) = sp(ctx).getBoolean(AYN_HOME_SKIP_BDSA, false)
     fun setAynHomeSkipBdsa(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_HOME_SKIP_BDSA, v).apply()
+
+    fun aynScreenLock(ctx: Context) = sp(ctx).getBoolean(AYN_SCREEN_LOCK, false)
+    fun setAynScreenLock(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_SCREEN_LOCK, v).apply()
 
     fun autoLaunchApps(ctx: Context): String = sp(ctx).getString(AUTOLAUNCH_APPS, "[]") ?: "[]"
     fun setAutoLaunchApps(ctx: Context, json: String) = sp(ctx).edit().putString(AUTOLAUNCH_APPS, json).apply()

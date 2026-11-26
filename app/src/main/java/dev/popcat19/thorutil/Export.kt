@@ -53,6 +53,7 @@ object Export {
         "ayn_home_double_recents" to Section.AYN,
         "ayn_back_gestures" to Section.AYN,
         "ayn_home_skip_bdsa" to Section.AYN,
+        "ayn_screen_lock" to Section.AYN,
         "autolaunch_apps" to Section.AUTOLAUNCH,
     )
 

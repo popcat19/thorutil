@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import dev.popcat19.thorutil.ayn.AynActions
 import org.json.JSONObject
 
 // Declarative preference changelog. Every new behavior pref ships as mkDefault (preserving
@@ -128,6 +129,18 @@ object Changelog {
             applyLegacy = { Prefs.setAynBackGestures(it, false) },
         ),
         PrefChange(
+            id = "ayn_screen_lock",
+            revision = 1,
+            version = "0.4.9",
+            title = "Screen lock bind (AYN + Y)",
+            summary = "Locks the focused screen and pad focus (heeding Odin focus lock). Routes lone Home, Back, and Prev app to the other screen while blocking explicit binds to the locked screen.",
+            legacyLabel = "Legacy: AYN+Y unbound",
+            newLabel = "New: AYN+Y toggles screen lock",
+            isNew = { Prefs.aynScreenLock(it) },
+            applyNew = { Prefs.setAynScreenLock(it, true) },
+            applyLegacy = { Prefs.setAynScreenLock(it, false) },
+        ),
+        PrefChange(
             id = "fan_zero_battery",
             revision = 1,
             version = "0.4.7",
@@ -221,6 +234,7 @@ object Changelog {
             } else if (PerfDaemon.state().running) {
                 PerfDaemon.stop(app)
             }
+            if (!Prefs.aynScreenLock(app)) AynActions.unlock(app, notify = false)
             KeeperService.sync(app)
         }
     }

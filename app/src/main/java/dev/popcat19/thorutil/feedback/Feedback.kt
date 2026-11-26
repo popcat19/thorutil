@@ -24,6 +24,7 @@ enum class FeedbackType(val key: String, val label: String) {
     PREV_APP("prev_app", "Previous app"),
     HOME("home", "Home on screen"),
     RECENTS("recents", "Recents toggle"),
+    SCREEN_LOCK("screen_lock", "Screen lock"),
     ROTATION("rotation", "Rotation"),
     BRIGHTNESS("brightness", "Brightness"),
 }

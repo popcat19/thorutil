@@ -118,7 +118,7 @@ object AutoLaunch {
             }
         }
         if (launchedAny) {
-            AynActions.home(ctx, AynActions.TOP)
+            AynActions.home(ctx, AynActions.TOP, respectLock = false)
         }
     }
 
@@ -149,7 +149,7 @@ object AutoLaunch {
                 Log.i(TAG, "watchdog: relaunching $p (screen off)")
                 if (launchActivity(ctx, p)) {
                     Thread.sleep(1500)
-                    AynActions.home(ctx, AynActions.TOP)
+                    AynActions.home(ctx, AynActions.TOP, respectLock = false)
                 }
             } else {
                 Log.i(TAG, "watchdog: $p stopped while interactive; deferred activity relaunch")

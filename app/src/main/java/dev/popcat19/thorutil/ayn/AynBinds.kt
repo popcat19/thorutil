@@ -13,6 +13,7 @@ enum class AynAction(val label: String) {
     PREV_APP_TOP("Previous app (top)"),
     PREV_APP_BOTTOM("Previous app (bottom)"),
     RECENTS_TOGGLE("Recents toggle"),
+    SCREEN_LOCK("Lock screen"),
     MOUSE("Mouse mode"),
     BRIGHTNESS_UP("Brightness up (both)"),
     BRIGHTNESS_DOWN("Brightness down (both)"),
@@ -54,6 +55,9 @@ object AynBinds {
         }
         if (!Prefs.aynHomeDoubleRecents(ctx)) {
             m[KeyEvent.KEYCODE_BUTTON_B] = AynAction.RECENTS_TOGGLE
+        }
+        if (Prefs.aynScreenLock(ctx)) {
+            m[KeyEvent.KEYCODE_BUTTON_Y] = AynAction.SCREEN_LOCK
         }
         m[KeyEvent.KEYCODE_BUTTON_X] = AynAction.MOUSE
         m[KeyEvent.KEYCODE_VOLUME_UP] = AynAction.BRIGHTNESS_UP

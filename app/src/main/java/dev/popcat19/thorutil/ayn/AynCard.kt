@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.popcat19.thorutil.Bg
 import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.Priv
 import dev.popcat19.thorutil.SwitchRow
@@ -62,10 +64,13 @@ fun AynCard(epoch: Int = 0, uiActive: Boolean = true) {
     var homeDoubleRecents by remember(epoch) { mutableStateOf(Prefs.aynHomeDoubleRecents(ctx)) }
     var backGestures by remember(epoch) { mutableStateOf(Prefs.aynBackGestures(ctx)) }
     var homeSkipBdsa by remember(epoch) { mutableStateOf(Prefs.aynHomeSkipBdsa(ctx)) }
+    var screenLock by remember(epoch) { mutableStateOf(Prefs.aynScreenLock(ctx)) }
+    var locked by remember { mutableStateOf(AynActions.lockedDisplay()) }
 
     LaunchedEffect(uiActive) {
         while (uiActive) {
             on = AynService.enabled(ctx)
+            locked = AynActions.lockedDisplay()
             delay(2000)
         }
     }
@@ -124,6 +129,34 @@ fun AynCard(epoch: Int = 0, uiActive: Boolean = true) {
             ) {
                 homeSkipBdsa = it
                 Prefs.setAynHomeSkipBdsa(ctx, it)
+            }
+            SwitchRow(
+                title = "Screen lock (AYN + Y)",
+                subtitle = "Lock screen & pad focus; routes lone Home/Back/Prev app to other screen",
+                checked = screenLock,
+            ) {
+                screenLock = it
+                Prefs.setAynScreenLock(ctx, it)
+                if (!it) {
+                    locked = null
+                    Bg.post { AynActions.unlock(ctx, notify = false) }
+                }
+            }
+            if (locked != null) {
+                val label = if (locked == AynActions.BOTTOM) "bottom" else "top"
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Locked: $label screen",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { AynActions.unlock(ctx, notify = true) }
+                            locked = AynActions.lockedDisplay()
+                        }
+                    }) { Text("Unlock") }
+                }
             }
 
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
