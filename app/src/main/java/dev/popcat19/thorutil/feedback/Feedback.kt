@@ -11,7 +11,6 @@ import android.graphics.PixelFormat
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import dev.popcat19.thorutil.R
@@ -36,8 +35,10 @@ enum class Haptic(val id: Int) {
 }
 
 object Feedback {
+    private data class ActiveToast(val wm: WindowManager, val view: TextView, val display: Int)
+
     private val main = Handler(Looper.getMainLooper())
-    private var last: Pair<WindowManager, View>? = null
+    private var last: ActiveToast? = null
     private val hide = Runnable { dismiss() }
 
     // Set by AynKeyService; its accessibility overlays survive HIDE_NON_SYSTEM_OVERLAY_WINDOWS
@@ -65,6 +66,13 @@ object Feedback {
     }
 
     private fun toast(app: Context, text: String, display: Int) {
+        val cur = last
+        if (cur != null && cur.display == display) {
+            cur.view.text = text
+            main.removeCallbacks(hide)
+            main.postDelayed(hide, 1500)
+            return
+        }
         dismiss()
         val svc = a11y
         val base = svc ?: app.takeIf { Settings.canDrawOverlays(it) } ?: return
@@ -95,14 +103,14 @@ object Feedback {
         }
         val wm = dc.getSystemService(WindowManager::class.java)
         runCatching { wm.addView(v, lp) }.onSuccess {
-            last = wm to v
+            last = ActiveToast(wm, v, display)
             main.postDelayed(hide, 1500)
         }
     }
 
     private fun dismiss() {
         main.removeCallbacks(hide)
-        last?.let { (wm, v) -> runCatching { wm.removeView(v) } }
+        last?.let { cur -> runCatching { cur.wm.removeView(cur.view) } }
         last = null
     }
 

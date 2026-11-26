@@ -2,6 +2,7 @@ package dev.popcat19.thorutil.ayn
 
 import android.content.Context
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import dev.popcat19.thorutil.Daemon
 import dev.popcat19.thorutil.Prefs
@@ -26,6 +27,12 @@ object AynActions {
     @Volatile
     private var pointerBottom = false
 
+    @Volatile
+    private var cachedPadDisplay = TOP
+
+    @Volatile
+    private var cachedPadDisplayAt = 0L
+
     private fun name(d: Int) = if (d == BOTTOM) "bottom" else "top"
 
     fun tap(ctx: Context) {
@@ -33,9 +40,14 @@ object AynActions {
     }
 
     fun back(ctx: Context) {
-        val d = targetDisplay()
+        val d = targetDisplay(ctx)
         Log.i(TAG, "back -> $d")
         Priv.sh("input -d $d keyevent BACK")
+    }
+
+    fun stepBrightness(ctx: Context, delta: Int) {
+        val pct = BrightnessLink.step(ctx, delta)
+        Feedback.show(ctx, FeedbackType.BRIGHTNESS, "Brightness $pct%", delta > 0, padDisplay(ctx, allowCache = true))
     }
 
     fun run(ctx: Context, a: AynAction) {
@@ -44,15 +56,15 @@ object AynActions {
             AynAction.FOCUS_TOP -> focus(ctx, TOP)
             AynAction.FOCUS_BOTTOM -> focus(ctx, BOTTOM)
             AynAction.FOCUS_SWAP -> {
-                val cur = if (Prefs.aynFocusMovesPad(ctx)) padDisplay() else if (pointerBottom) BOTTOM else TOP
+                val cur = if (Prefs.aynFocusMovesPad(ctx)) padDisplay(ctx) else if (pointerBottom) BOTTOM else TOP
                 focus(ctx, if (cur == BOTTOM) TOP else BOTTOM)
             }
             AynAction.SWAP_WINDOWS -> {
                 swapWindows()
-                Feedback.show(ctx, FeedbackType.WINDOWS, "Windows swapped", false, padDisplay())
+                Feedback.show(ctx, FeedbackType.WINDOWS, "Windows swapped", false, padDisplay(ctx))
             }
             AynAction.PREV_APP -> {
-                val d = targetDisplay()
+                val d = targetDisplay(ctx)
                 if (prevApp(d)) Feedback.show(ctx, FeedbackType.PREV_APP, "Previous app", d == TOP, d)
             }
             AynAction.PREV_APP_TOP -> {
@@ -75,8 +87,7 @@ object AynActions {
             }
             AynAction.MOUSE -> Daemon.toggle()
             AynAction.BRIGHTNESS_UP, AynAction.BRIGHTNESS_DOWN -> {
-                val pct = BrightnessLink.step(ctx, a == AynAction.BRIGHTNESS_UP)
-                Feedback.show(ctx, FeedbackType.BRIGHTNESS, "Brightness $pct%", a == AynAction.BRIGHTNESS_UP, padDisplay())
+                stepBrightness(ctx, if (a == AynAction.BRIGHTNESS_UP) 1 else -1)
             }
         }
     }
@@ -89,7 +100,7 @@ object AynActions {
         val d = when {
             display != null -> display
             Prefs.aynHomeSkipBdsa(ctx) && bdsaVisible() -> TOP
-            else -> targetDisplay()
+            else -> targetDisplay(ctx)
         }
         val cat = if (d == BOTTOM) "android.intent.category.SECONDARY_HOME" else "android.intent.category.HOME"
         Log.i(TAG, "home -> $d ($cat)")
@@ -141,20 +152,25 @@ object AynActions {
     }
 
     // Last touched screen if touched after the last focus action, else pad focus.
-    fun targetDisplay(): Int {
+    fun targetDisplay(ctx: Context): Int {
         val p = Priv.sh("cat $TOUCH 2>/dev/null").out.trim().split(' ')
         val at = p.getOrNull(1)?.toLongOrNull() ?: 0L
         val d = p.getOrNull(0)?.toIntOrNull()
         if (d != null && at > focusAt) return if (d == BOTTOM) BOTTOM else TOP
-        return padDisplay()
+        return padDisplay(ctx)
     }
 
-    fun padDisplay(): Int {
-        val lock = Priv.sh("settings get system $FOCUS_LOCK").out.trim()
+    fun padDisplay(ctx: Context, allowCache: Boolean = false): Int {
+        val lock = runCatching { Settings.System.getString(ctx.contentResolver, FOCUS_LOCK)?.trim() }.getOrNull()
         if (lock == "1") return TOP
         if (lock == "2") return BOTTOM
+        val now = SystemClock.elapsedRealtime()
+        if (allowCache && now - cachedPadDisplayAt < 1_500L) return cachedPadDisplay
         val top = Priv.sh("dumpsys window displays | grep -m1 mTopFocusedDisplayId").out
-        return if (top.trim().endsWith("=$BOTTOM")) BOTTOM else TOP
+        val d = if (top.trim().endsWith("=$BOTTOM")) BOTTOM else TOP
+        cachedPadDisplay = d
+        cachedPadDisplayAt = now
+        return d
     }
 
     data class Task(val rootId: Int, val display: Int, val component: String)

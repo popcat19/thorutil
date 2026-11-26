@@ -9,6 +9,8 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.feedback.Feedback
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 // Holds AYN as a modifier. AYN never reaches PhoneWindowManager while this runs,
 // so a lone tap is re-sent through the daemon's gpio-keys clone (vendor 0x2020),
@@ -27,10 +29,37 @@ class AynKeyService : AccessibilityService() {
     private var backCombo = false
     private var backTapPending = false
     private val swallowed = HashSet<Int>()
-    @Volatile private var stepping = false
+    private val pendingBrightness = AtomicInteger(0)
+    private val brightnessBusy = AtomicBoolean(false)
     private val main = Handler(Looper.getMainLooper())
     private var repeatCode = 0
     private var repeatTask: Runnable? = null
+
+    private val brightnessDrain: Runnable = object : Runnable {
+        override fun run() {
+            try {
+                while (true) {
+                    val delta = pendingBrightness.getAndSet(0)
+                    if (delta == 0) break
+                    AynActions.stepBrightness(applicationContext, delta)
+                }
+            } finally {
+                brightnessBusy.set(false)
+                if (pendingBrightness.get() != 0 && brightnessBusy.compareAndSet(false, true)) {
+                    worker.post(this)
+                }
+            }
+        }
+    }
+
+    private fun queueBrightness(action: AynAction, fromRepeat: Boolean = false) {
+        // Skip piling up repeat ticks while a step is in flight so release stops immediately.
+        if (fromRepeat && (brightnessBusy.get() || pendingBrightness.get() != 0)) return
+        pendingBrightness.addAndGet(if (action == AynAction.BRIGHTNESS_UP) 1 else -1)
+        if (brightnessBusy.compareAndSet(false, true)) {
+            worker.post(brightnessDrain)
+        }
+    }
 
     private val homeSingleRun = Runnable {
         homeTapPending = false
@@ -56,10 +85,7 @@ class AynKeyService : AccessibilityService() {
         val task = object : Runnable {
             override fun run() {
                 if (!held) return stopRepeat()
-                if (!stepping) {
-                    stepping = true
-                    worker.post { AynActions.run(applicationContext, action); stepping = false }
-                }
+                queueBrightness(action, fromRepeat = true)
                 main.postDelayed(this, REPEAT_MS)
             }
         }
@@ -88,6 +114,7 @@ class AynKeyService : AccessibilityService() {
         main.removeCallbacks(backSingleRun)
         main.removeCallbacks(backHoldRun)
         stopRepeat()
+        pendingBrightness.set(0)
         if (Feedback.a11y === this) Feedback.a11y = null
         thread.quitSafely()
         super.onDestroy()
@@ -195,8 +222,12 @@ class AynKeyService : AccessibilityService() {
             val action = AynBinds.aynBinds(applicationContext)[code] ?: return false
             combo = true
             swallowed.add(code)
-            worker.post { AynActions.run(applicationContext, action) }
-            if (action in REPEATING) startRepeat(code, action)
+            if (action in REPEATING) {
+                queueBrightness(action)
+                startRepeat(code, action)
+            } else {
+                worker.post { AynActions.run(applicationContext, action) }
+            }
             return true
         }
         if (code in swallowed) {
@@ -235,8 +266,8 @@ class AynKeyService : AccessibilityService() {
     companion object {
         const val AYN_SCAN = 194
         const val GPIO_VENDOR = 0x0001
-        const val REPEAT_DELAY_MS = 400L
-        const val REPEAT_MS = 80L
+        const val REPEAT_DELAY_MS = 280L
+        const val REPEAT_MS = 65L
         const val DOUBLE_TAP_MS = 260L
         const val HOLD_MS = 450L
         val REPEATING = setOf(AynAction.BRIGHTNESS_UP, AynAction.BRIGHTNESS_DOWN)

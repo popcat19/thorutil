@@ -24,17 +24,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @Composable
-fun PerfCard(epoch: Int = 0) {
+fun PerfCard(epoch: Int = 0, uiActive: Boolean = true) {
     val ctx = LocalContext.current
     var enabled by remember(epoch) { mutableStateOf(Prefs.perfAdaptive(ctx)) }
     var live by remember { mutableStateOf<PerfDaemon.State?>(null) }
 
-    LaunchedEffect(enabled) {
-        while (enabled) {
+    LaunchedEffect(enabled, uiActive) {
+        if (!enabled) {
+            live = null
+            return@LaunchedEffect
+        }
+        while (uiActive) {
             live = withContext(Dispatchers.IO) { PerfDaemon.state() }
             delay(2000)
         }
-        live = null
     }
 
     Card(Modifier.fillMaxWidth()) {

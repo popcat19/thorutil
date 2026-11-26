@@ -37,7 +37,7 @@ private fun format(points: List<Point>) =
     points.sortedBy { it.temp }.joinToString(",") { "${it.temp.toInt()}:${it.pct.toInt()}" }
 
 @Composable
-fun FanCard(epoch: Int = 0) {
+fun FanCard(epoch: Int = 0, uiActive: Boolean = true) {
     val ctx = LocalContext.current
     var managed by remember { mutableStateOf(Prefs.fanManaged(ctx)) }
     val points = remember {
@@ -55,12 +55,15 @@ fun FanCard(epoch: Int = 0) {
     var live by remember { mutableStateOf<FanDaemon.State?>(null) }
     var dirty by remember { mutableStateOf(false) }
 
-    LaunchedEffect(managed) {
-        while (managed) {
+    LaunchedEffect(managed, uiActive) {
+        if (!managed) {
+            live = null
+            return@LaunchedEffect
+        }
+        while (uiActive) {
             live = withContext(Dispatchers.IO) { FanDaemon.state() }
             delay(2000)
         }
-        live = null
     }
 
     fun apply() = Thread {

@@ -50,6 +50,17 @@ import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
     private val openChangelogSignal = mutableIntStateOf(0)
+    private val uiActive = mutableStateOf(false)
+
+    override fun onStart() {
+        super.onStart()
+        uiActive.value = true
+    }
+
+    override fun onStop() {
+        uiActive.value = false
+        super.onStop()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,7 +72,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val scheme = runCatching { dynamicDarkColorScheme(this) }.getOrElse { darkColorScheme() }
             MaterialTheme(colorScheme = scheme) {
-                Scaffold { pad -> Screen(Modifier.padding(pad), openChangelogSignal.intValue) }
+                Scaffold { pad -> Screen(Modifier.padding(pad), openChangelogSignal.intValue, uiActive.value) }
             }
         }
     }
@@ -75,7 +86,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Screen(modifier: Modifier, openChangelogSignal: Int) {
+private fun Screen(modifier: Modifier, openChangelogSignal: Int, uiActive: Boolean) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var backend by remember { mutableStateOf(Priv.Backend.NONE) }
@@ -146,7 +157,7 @@ private fun Screen(modifier: Modifier, openChangelogSignal: Int) {
                         runCatching { if (Shizuku.pingBinder()) Shizuku.requestPermission(1) }
                         scope.launch { delay(1500); tick++ }
                     }) { Text("Request Shizuku") }
-                    OutlinedButton(onClick = { tick++ }) { Text("Recheck") }
+                    OutlinedButton(onClick = { Priv.recheck(); tick++ }) { Text("Recheck") }
                 }
             }
         }
@@ -155,9 +166,9 @@ private fun Screen(modifier: Modifier, openChangelogSignal: Int) {
         RotationCard(changelogEpoch)
         DensityCard()
         VolumeCard()
-        FanCard(changelogEpoch)
-        PerfCard(changelogEpoch)
-        MouseCard(changelogEpoch)
+        FanCard(changelogEpoch, uiActive)
+        PerfCard(changelogEpoch, uiActive)
+        MouseCard(changelogEpoch, uiActive)
         AynCard(changelogEpoch)
         AutoLaunchCard()
         FeedbackCard()
@@ -335,7 +346,7 @@ private fun RotationCard(epoch: Int) {
 }
 
 @Composable
-private fun MouseCard(epoch: Int) {
+private fun MouseCard(epoch: Int, uiActive: Boolean = true) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(Daemon.State(false, false)) }
@@ -349,7 +360,7 @@ private fun MouseCard(epoch: Int) {
     suspend fun refresh() {
         state = withContext(Dispatchers.IO) { Daemon.state() }
     }
-    LaunchedEffect(Unit) { while (true) { refresh(); delay(2000) } }
+    LaunchedEffect(uiActive) { while (uiActive) { refresh(); delay(2000) } }
 
     fun act(block: () -> Unit) = scope.launch {
         withContext(Dispatchers.IO) { block() }
