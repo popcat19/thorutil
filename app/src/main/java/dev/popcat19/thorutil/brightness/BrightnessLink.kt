@@ -32,15 +32,21 @@ object BrightnessLink {
     private val lock = Any()
     private var cachedLin = Float.NaN
     private var cachedAt = 0L
+    private var cachedBinder: Pair<IBinder, String>? = null
 
     private fun shizukuDisplay(): Pair<IBinder, String>? {
-        if (!Priv.shizukuReady()) return null
+        if (!Priv.shizukuReady()) {
+            cachedBinder = null
+            return null
+        }
+        cachedBinder?.let { if (it.first.isBinderAlive) return it else cachedBinder = null }
         return try {
             val raw = SystemServiceHelper.getSystemService("display") ?: return null
             val desc = raw.interfaceDescriptor ?: DISPLAY_DESCRIPTOR
-            ShizukuBinderWrapper(raw) to desc
+            (ShizukuBinderWrapper(raw) to desc).also { cachedBinder = it }
         } catch (e: Throwable) {
             Log.w(TAG, "shizuku display binder unavailable", e)
+            cachedBinder = null
             null
         }
     }
@@ -52,11 +58,15 @@ object BrightnessLink {
         return try {
             data.writeInterfaceToken(desc)
             data.writeInt(d)
-            if (!binder.transact(TX_GET_BRIGHTNESS, data, reply, 0)) return null
+            if (!binder.transact(TX_GET_BRIGHTNESS, data, reply, 0)) {
+                cachedBinder = null
+                return null
+            }
             reply.readException()
             reply.readFloat()
         } catch (e: Throwable) {
             Log.w(TAG, "binder getBrightness($d) failed", e)
+            cachedBinder = null
             null
         } finally {
             data.recycle()
@@ -74,7 +84,10 @@ object BrightnessLink {
                     data.writeInterfaceToken(desc)
                     data.writeInt(d)
                     data.writeFloat(v)
-                    if (!binder.transact(TX_SET_BRIGHTNESS, data, reply, 0)) return false
+                    if (!binder.transact(TX_SET_BRIGHTNESS, data, reply, 0)) {
+                        cachedBinder = null
+                        return false
+                    }
                     reply.readException()
                 } finally {
                     data.recycle()
@@ -84,6 +97,7 @@ object BrightnessLink {
             true
         } catch (e: Throwable) {
             Log.w(TAG, "binder setBrightness failed", e)
+            cachedBinder = null
             false
         }
     }

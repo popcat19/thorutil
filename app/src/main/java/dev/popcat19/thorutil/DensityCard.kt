@@ -30,12 +30,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun DensityCard() {
+fun DensityCard(epoch: Int = 0) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val info = remember { mutableStateMapOf<Panel, Density.Info>() }
     val draft = remember { mutableStateMapOf<Panel, Float>() }
-    var presets by remember { mutableStateOf(Density.presets(ctx)) }
+    var presets by remember(epoch) { mutableStateOf(Density.presets(ctx)) }
     var name by remember { mutableStateOf("") }
 
     suspend fun refresh() = withContext(Dispatchers.IO) {

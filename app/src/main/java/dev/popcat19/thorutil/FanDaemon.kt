@@ -3,7 +3,6 @@ package dev.popcat19.thorutil
 import android.content.Context
 import android.provider.Settings
 import android.util.Log
-import java.io.File
 
 // Controls the native thor-fan daemon. The binary ships as libthorfan.so so the package
 // manager extracts it executable into nativeLibraryDir.
@@ -20,18 +19,28 @@ object FanDaemon {
     const val STATE = "/data/local/tmp/thorutil-fan.state"
     private const val SUSPEND = "/data/local/tmp/thorutil-fan.suspend"
     private const val LOG = "/data/local/tmp/thorutil-fan.log"
+    private const val SPEED_PATH = "/sys/class/gpio5_pwm2/speed"
     private const val TAG = "ThorUtil/Fan"
 
     const val MODE_KEY = "fan_mode"
     const val SPEED_KEY = "fan_speed"
-    // OdinSettings s1.b$d.k(6) returns fan_speed unchanged when < 0, and s1.b$c.r() skips the
-    // duty write when <= -1, preventing 67% duty jumps on wake/app-switch while keeping state=1.
-    private const val SPEED_NOOP = -1
     const val MODE_OFF = 0
     const val MODE_QUIET = 1
     const val MODE_SMART = 4
     const val MODE_SPORT = 5
     const val MODE_CUSTOM = 6
+    // Odin's FanTrigger writes `duty = fan_speed * 500` when fan_speed >= 0 in Custom mode.
+    // Setting fan_speed = -1 skips that write while keeping Smart/Quiet/Sport untouched.
+    private const val SPEED_NOOP = -1
+
+    private val proc = NativeDaemon(
+        libName = "libthorfan.so",
+        statePath = STATE,
+        logPath = LOG,
+        suspendPath = SUSPEND,
+        pidField = 1,
+        wakeSignal = "-USR1",
+    )
 
     data class State(
         val running: Boolean,
@@ -44,9 +53,7 @@ object FanDaemon {
         val yieldedMode: Int? = null,
     )
 
-    fun binary(ctx: Context) = File(ctx.applicationInfo.nativeLibraryDir, "libthorfan.so").absolutePath
-
-    private fun pidExpr() = "\$(cut -d' ' -f1 $STATE 2>/dev/null)"
+    fun binary(ctx: Context) = proc.binary(ctx)
 
     // Tracks which reasons currently pause the daemon so screen-off and profile-yield don't
     // clobber each other.
@@ -91,18 +98,22 @@ object FanDaemon {
         }
     }
 
-    fun state(): State {
+    // RPM is only queried when includeRpm=true (UI open), because reading gpio5_pwm2/speed
+    // busy-spins ~100ms in the kernel driver.
+    fun state(includeRpm: Boolean = false): State {
         val y = yieldedMode
-        // /proc/$p works from shell even when the daemon was started by root at boot.
-        val r = Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ] && cat $STATE")
-        if (r.code != 0) return State(false, 0, 0.0, 0, yieldedMode = y)
-        val f = r.out.trim().split(" ")
+        val extra = if (includeRpm) "cat $SPEED_PATH 2>/dev/null || echo 0" else ""
+        val out = proc.readStateLine(extra) ?: return State(false, 0, 0.0, 0, yieldedMode = y)
+        val lines = out.lines()
+        val f = lines.firstOrNull()?.trim()?.split(" ") ?: return State(false, 0, 0.0, 0, yieldedMode = y)
         if (f.size < 4) return State(false, 0, 0.0, 0, yieldedMode = y)
+        val rpm = if (includeRpm) lines.getOrNull(1)?.trim()?.toLongOrNull() ?: 0L
+        else f[3].toLongOrNull() ?: 0L
         return State(
             running = true,
             pct = f[1].toIntOrNull() ?: 0,
             soakC = f[2].toDoubleOrNull() ?: 0.0,
-            rpm = f[3].toLongOrNull() ?: 0,
+            rpm = rpm,
             junctC = f.getOrNull(4)?.toDoubleOrNull() ?: 0.0,
             guarded = f.getOrNull(5) == "1",
             zeroStopped = f.getOrNull(6) == "1",
@@ -115,14 +126,11 @@ object FanDaemon {
         Priv.sh("settings put system $MODE_KEY $mode")
     }
 
-    private fun syncSuspend(): Boolean {
-        val want = screenOff || yieldedMode != null
-        return Priv.sh(if (want) "touch $SUSPEND; chmod 666 $SUSPEND" else "rm -f $SUSPEND").code == 0
-    }
+    private fun syncSuspend(): Boolean = proc.setSuspendFile(screenOff || yieldedMode != null)
 
     // Start the daemon, respecting the current Odin fan_mode: if the user is on Smart or Custom
     // we take over; if they're on Quiet/Sport/Off we start suspended and yield until Smart.
-    fun start(ctx: Context, forceTakeover: Boolean = false): Boolean {
+    fun start(ctx: Context, forceTakeover: Boolean = false): Boolean = synchronized(proc.lock) {
         stopped = false
         val mode = currentMode(ctx)
         if (forceTakeover || mode == MODE_SMART || mode == MODE_CUSTOM) {
@@ -137,7 +145,6 @@ object FanDaemon {
             yieldedMode = mode
             Log.i(TAG, "start yielded to Odin ${modeName(mode)}")
         }
-        if (state().running) return syncSuspend()
         val curve = Prefs.fanCurve(ctx)
         val zeroArgs = if (Prefs.fanZeroBattery(ctx)) {
             " -z ${Prefs.fanZeroOffC(ctx)} -Z ${Prefs.fanZeroOnC(ctx)}"
@@ -145,21 +152,18 @@ object FanDaemon {
         val args = "-c $curve -t ${Prefs.fanTau(ctx)} -h ${Prefs.fanHyst(ctx)} " +
             "-u ${Prefs.fanSlewUp(ctx)} -D ${Prefs.fanSlewDown(ctx)} " +
             "-g ${Prefs.fanGuardC(ctx)} -G ${Prefs.fanGuardS(ctx)}$zeroArgs"
-        val suspendCmd = if (screenOff || yieldedMode != null) "touch $SUSPEND; chmod 666 $SUSPEND;" else "rm -f $SUSPEND;"
-        val cmd = "rm -f $STATE $LOG; $suspendCmd setsid ${binary(ctx)} $args </dev/null >$LOG 2>&1 & sleep 0.3; " +
-            "p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ]"
-        return Priv.sh(cmd).code == 0
+        proc.launch(ctx, args = args, suspended = screenOff || yieldedMode != null)
     }
 
     // Hands the fan back to Odin in Smart (or the mode saved before takeover).
-    fun stop(ctx: Context): Boolean {
+    fun stop(ctx: Context): Boolean = synchronized(proc.lock) {
         stopped = true
-        val ok = kill()
+        val ok = proc.kill()
         Priv.sh("rm -f $SUSPEND")
         restoreOdinSpeed(ctx)
         if (currentMode(ctx) == MODE_CUSTOM) writeMode(Prefs.savedFanMode(ctx))
         yieldedMode = null
-        return ok
+        ok
     }
 
     // React to external changes to system fan_mode (QS tile, Odin Settings, boot).
@@ -175,7 +179,7 @@ object FanDaemon {
                 Prefs.setSavedFanMode(ctx, MODE_SMART)
                 suppressOdinDuty(ctx)
                 writeMode(MODE_CUSTOM)
-                if (!state().running) start(ctx, forceTakeover = true) else syncSuspend()
+                if (!proc.isRunning()) start(ctx, forceTakeover = true) else syncSuspend()
             }
             MODE_CUSTOM -> {
                 // Already in our mode; keep current state.
@@ -205,24 +209,15 @@ object FanDaemon {
         if (!Prefs.fanManaged(ctx)) return
         if (currentMode(ctx) == MODE_CUSTOM) {
             Log.i(TAG, "shutdown: restoring fan_mode=${Prefs.savedFanMode(ctx)}")
-            kill()
+            proc.kill()
             restoreOdinSpeed(ctx)
             writeMode(Prefs.savedFanMode(ctx))
         }
     }
 
-    private fun kill(): Boolean {
-        val cmd = "p=${pidExpr()}; [ -n \"\$p\" ] && kill \$p 2>/dev/null"
-        if (Priv.sh(cmd).code != 0 && Priv.rootReady()) Priv.shRoot(cmd)
-        return true
-    }
-
-    fun restart(ctx: Context): Boolean {
-        kill()
-        repeat(15) {
-            if (!state().running) return@repeat
-            Thread.sleep(100)
-        }
-        return start(ctx, forceTakeover = false)
+    fun restart(ctx: Context): Boolean = synchronized(proc.lock) {
+        proc.kill()
+        proc.waitStopped()
+        start(ctx, forceTakeover = false)
     }
 }

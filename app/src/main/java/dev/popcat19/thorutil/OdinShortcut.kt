@@ -1,6 +1,7 @@
 package dev.popcat19.thorutil
 
 import android.content.Context
+import android.provider.Settings
 
 // Odin settings (com.odin.settings trigger G.u) registers no hotkey when both keys are empty.
 object OdinShortcut {
@@ -12,15 +13,17 @@ object OdinShortcut {
         val label get() = if (cleared) "none" else listOf(first, second).filter { it.isNotEmpty() }.joinToString(" + ")
     }
 
-    private fun get(key: String): String =
-        Priv.sh("settings get system $key").out.let { if (it == "null") "" else safe(it) }
+    private fun get(ctx: Context, key: String): String {
+        val v = runCatching { Settings.System.getString(ctx.contentResolver, key) }.getOrNull()
+        return if (v.isNullOrEmpty() || v == "null") "" else safe(v)
+    }
 
     private fun safe(id: String) = id.filter { it.isLetterOrDigit() || it == '_' }
 
-    fun read(): Keys = Keys(get(K1), get(K2))
+    fun read(ctx: Context): Keys = Keys(get(ctx, K1), get(ctx, K2))
 
     fun clear(ctx: Context): Boolean {
-        val cur = read()
+        val cur = read(ctx)
         if (!cur.cleared) Prefs.setOdinKeys(ctx, cur.first, cur.second)
         return Priv.sh("settings put system $K1 '' && settings put system $K2 '' && settings put global global_gamepad_to_mouse_mode 0").code == 0
     }

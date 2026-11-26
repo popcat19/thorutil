@@ -36,10 +36,15 @@ class KeeperService : Service() {
     private var fanObserver: ContentObserver? = null
     private var hint: RotationHint? = null
     private val restore = Runnable { enforce("debounce") }
+    private val enforceEarly = Runnable { enforce("screen-early") }
+    private val enforceMid = Runnable { enforce("screen-mid") }
+    private val enforceLate = Runnable { enforce("screen-late") }
     private val imeRebind = Runnable { rebindIme("trigger") }
+    private val imeRebindSettle = Runnable { rebindIme("settle") }
     private val fanModeChange = Runnable { FanDaemon.onModeChanged(this) }
     private var lastRot = ""
     private var watchTick = 0
+    private var bootRetriesScheduled = false
     @Volatile
     private var lastRebindAt = 0L
 
@@ -60,10 +65,24 @@ class KeeperService : Service() {
         lastRot = key
         handler.post { Daemon.rotation(top, bottom) }
         if (hadPrev && Prefs.imeRebindFix(this)) {
-            handler.removeCallbacks(imeRebind)
-            handler.postDelayed(imeRebind, 600)
-            handler.postDelayed({ rebindIme("rotation-settle") }, 1500)
+            scheduleImeRebind(600, 1500)
         }
+    }
+
+    private fun scheduleImeRebind(firstMs: Long, secondMs: Long) {
+        handler.removeCallbacks(imeRebind)
+        handler.removeCallbacks(imeRebindSettle)
+        handler.postDelayed(imeRebind, firstMs)
+        handler.postDelayed(imeRebindSettle, secondMs)
+    }
+
+    private fun scheduleScreenEnforce() {
+        handler.removeCallbacks(enforceEarly)
+        handler.removeCallbacks(enforceMid)
+        handler.removeCallbacks(enforceLate)
+        handler.postDelayed(enforceEarly, 400)
+        handler.postDelayed(enforceMid, 1500)
+        handler.postDelayed(enforceLate, 4000)
     }
 
     private fun rebindIme(why: String) {
@@ -81,7 +100,8 @@ class KeeperService : Service() {
     private val daemonWatch = object : Runnable {
         override fun run() {
             val nativeDir = applicationInfo.nativeLibraryDir
-            val upgraded = Prefs.lastNativeDir(this@KeeperService) != nativeDir && Priv.backend() != Priv.Backend.NONE
+            val dirChanged = Prefs.lastNativeDir(this@KeeperService) != nativeDir
+            val upgraded = dirChanged && Priv.backend() != Priv.Backend.NONE
             if (upgraded) {
                 Prefs.setLastNativeDir(this@KeeperService, nativeDir)
                 if (Prefs.daemonOnBoot(this@KeeperService) && !Daemon.stopped) {
@@ -147,11 +167,10 @@ class KeeperService : Service() {
             if (Prefs.fanManaged(this@KeeperService)) handler.post { FanDaemon.setScreenOff(off) }
             if (Prefs.perfAdaptive(this@KeeperService)) handler.post { PerfDaemon.setScreenOff(off) }
             if (off) hint?.stop() else syncHint()
-            // The assistants write their reset shortly after these broadcasts.
-            for (delay in longArrayOf(400, 1500, 4000)) handler.postDelayed({ enforce(action) }, delay)
+            // The assistants write their reset shortly after these broadcasts; deduplicate bursts.
+            scheduleScreenEnforce()
             if (!off && Prefs.imeRebindFix(this@KeeperService)) {
-                handler.postDelayed({ rebindIme(action) }, 600)
-                handler.postDelayed({ rebindIme("$action-late") }, 2000)
+                scheduleImeRebind(600, 2000)
             }
         }
     }
@@ -214,16 +233,18 @@ class KeeperService : Service() {
         Rotation.apply(this, rot)
         handler.post { Rotation.syncForceLandscape(this, rot) }
         syncHint()
-        handler.post { VolumeLink.sync(this, force = true) }
+        handler.post { VolumeLink.sync(this, force = !bootRetriesScheduled) }
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification())
-        // Boot: Shizuku can come up after us, so retry a few times.
-        for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
-        val interactive = getSystemService(PowerManager::class.java).isInteractive
-        if (Prefs.fanManaged(this)) handler.post { FanDaemon.setScreenOff(!interactive) }
-        if (Prefs.perfAdaptive(this)) handler.post { PerfDaemon.setScreenOff(!interactive) }
-        // Daemon watchdog: restart it if it dies (or once after an APK upgrade).
-        handler.removeCallbacks(daemonWatch)
-        handler.post(daemonWatch)
+        // Boot: Shizuku can come up after us, so retry a few times once per service lifetime.
+        if (!bootRetriesScheduled) {
+            bootRetriesScheduled = true
+            for (delay in longArrayOf(5000, 15000, 30000)) handler.postDelayed({ enforce("boot") }, delay)
+            val interactive = getSystemService(PowerManager::class.java).isInteractive
+            if (Prefs.fanManaged(this)) handler.post { FanDaemon.setScreenOff(!interactive) }
+            if (Prefs.perfAdaptive(this)) handler.post { PerfDaemon.setScreenOff(!interactive) }
+            handler.removeCallbacks(daemonWatch)
+            handler.post(daemonWatch)
+        }
         return START_STICKY
     }
 
@@ -307,7 +328,7 @@ class KeeperService : Service() {
             val i = Intent(ctx, KeeperService::class.java)
             val app = ctx.applicationContext
             if (Prefs.rotation(app) == RotationMode.AUTO) {
-                Thread { Rotation.syncForceLandscape(app, RotationMode.AUTO) }.start()
+                Bg.post { Rotation.syncForceLandscape(app, RotationMode.AUTO) }
             }
             if (needed(ctx)) ctx.startForegroundService(i) else ctx.stopService(i)
         }

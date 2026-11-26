@@ -13,6 +13,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
+import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.R
 
 enum class FeedbackType(val key: String, val label: String) {
@@ -45,7 +46,7 @@ object Feedback {
     // (e.g. the Bluetooth settings page), which hides plain app overlays on every display.
     @Volatile var a11y: Context? = null
 
-    private fun sp(ctx: Context) = ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
+    private fun sp(ctx: Context) = Prefs.prefs(ctx)
 
     fun toastOn(ctx: Context, t: FeedbackType) = sp(ctx).getBoolean("fb_toast_${t.key}", true)
     fun hapticOn(ctx: Context, t: FeedbackType) = sp(ctx).getBoolean("fb_haptic_${t.key}", true)

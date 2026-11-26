@@ -1,9 +1,11 @@
 package dev.popcat19.thorutil.ayn
 
 import android.accessibilityservice.AccessibilityService
+import android.hardware.input.InputManager
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.util.SparseIntArray
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
@@ -32,6 +34,12 @@ class AynKeyService : AccessibilityService() {
     private val pendingBrightness = AtomicInteger(0)
     private val brightnessBusy = AtomicBoolean(false)
     private val main = Handler(Looper.getMainLooper())
+    private val deviceFlags = SparseIntArray()
+    private val inputListener = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(id: Int) = deviceFlags.delete(id)
+        override fun onInputDeviceRemoved(id: Int) = deviceFlags.delete(id)
+        override fun onInputDeviceChanged(id: Int) = deviceFlags.delete(id)
+    }
     private var repeatCode = 0
     private var repeatTask: Runnable? = null
 
@@ -103,6 +111,7 @@ class AynKeyService : AccessibilityService() {
         super.onCreate()
         thread = HandlerThread("ayn-actions").apply { start() }
         worker = Handler(thread.looper)
+        getSystemService(InputManager::class.java)?.registerInputDeviceListener(inputListener, main)
     }
 
     override fun onServiceConnected() {
@@ -110,6 +119,8 @@ class AynKeyService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        getSystemService(InputManager::class.java)?.unregisterInputDeviceListener(inputListener)
+        deviceFlags.clear()
         main.removeCallbacks(homeSingleRun)
         main.removeCallbacks(backSingleRun)
         main.removeCallbacks(backHoldRun)
@@ -240,30 +251,34 @@ class AynKeyService : AccessibilityService() {
         return false
     }
 
-    private fun isRealAyn(e: KeyEvent): Boolean {
-        if (e.scanCode != AYN_SCAN) return false
-        val dev = InputDevice.getDevice(e.deviceId) ?: return false
-        return dev.vendorId == GPIO_VENDOR
+    private fun flagsFor(deviceId: Int): Int {
+        val idx = deviceFlags.indexOfKey(deviceId)
+        if (idx >= 0) return deviceFlags.valueAt(idx)
+        val dev = InputDevice.getDevice(deviceId) ?: return 0
+        var flags = 0
+        if (dev.vendorId == GPIO_VENDOR) flags = flags or DEV_GPIO
+        if (dev.supportsSource(InputDevice.SOURCE_GAMEPAD)) flags = flags or DEV_GAMEPAD
+        deviceFlags.put(deviceId, flags)
+        return flags
     }
+
+    private fun isRealAyn(e: KeyEvent): Boolean =
+        e.scanCode == AYN_SCAN && (flagsFor(e.deviceId) and DEV_GPIO) != 0
 
     // gpio-keys (real or the re-send clone) also maps to HOME; only the pad counts.
-    private fun isPadHome(e: KeyEvent): Boolean {
-        if (e.keyCode != KeyEvent.KEYCODE_HOME || e.scanCode == AYN_SCAN) return false
-        val dev = InputDevice.getDevice(e.deviceId) ?: return false
-        return dev.supportsSource(InputDevice.SOURCE_GAMEPAD)
-    }
+    private fun isPadHome(e: KeyEvent): Boolean =
+        e.keyCode == KeyEvent.KEYCODE_HOME && e.scanCode != AYN_SCAN && (flagsFor(e.deviceId) and DEV_GAMEPAD) != 0
 
     // B also maps to BACK; only recognize the pad's real Back key (scan 158), not B (305).
-    private fun isPadBack(e: KeyEvent): Boolean {
-        if (e.keyCode != KeyEvent.KEYCODE_BACK || e.scanCode != 158) return false
-        val dev = InputDevice.getDevice(e.deviceId) ?: return false
-        return dev.supportsSource(InputDevice.SOURCE_GAMEPAD)
-    }
+    private fun isPadBack(e: KeyEvent): Boolean =
+        e.keyCode == KeyEvent.KEYCODE_BACK && e.scanCode == 158 && (flagsFor(e.deviceId) and DEV_GAMEPAD) != 0
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
 
     companion object {
+        private const val DEV_GPIO = 1
+        private const val DEV_GAMEPAD = 2
         const val AYN_SCAN = 194
         const val GPIO_VENDOR = 0x0001
         const val REPEAT_DELAY_MS = 280L

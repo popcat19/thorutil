@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun ExportCard() {
+fun ExportCard(onImported: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val picked = remember { mutableStateListOf(*Export.Section.entries.toTypedArray()) }
@@ -55,11 +55,18 @@ fun ExportCard() {
                     KeeperService.sync(ctx.applicationContext)
                     if (Daemon.state().running) Daemon.restart(ctx)
                     if (FanDaemon.state().running) FanDaemon.restart(ctx)
+                    if (Prefs.perfAdaptive(ctx)) {
+                        if (!PerfDaemon.state().running) PerfDaemon.start(ctx)
+                    } else if (PerfDaemon.state().running) {
+                        PerfDaemon.stop(ctx)
+                    }
                     n
                 }
             }
-            r.onSuccess { say("Imported $it settings, reopen to refresh") }
-                .onFailure { say("Import failed: ${it.message}") }
+            r.onSuccess {
+                onImported()
+                say("Imported $it settings")
+            }.onFailure { say("Import failed: ${it.message}") }
         }
     }
 

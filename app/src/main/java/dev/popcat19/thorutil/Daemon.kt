@@ -1,7 +1,6 @@
 package dev.popcat19.thorutil
 
 import android.content.Context
-import java.io.File
 
 // Controls the native thor-mouse daemon. The binary ships as libthormouse.so so the
 // package manager extracts it executable into nativeLibraryDir.
@@ -10,20 +9,26 @@ object Daemon {
     private const val LOG = "/data/local/tmp/thorutil-mouse.log"
     private const val SUSPEND = "/data/local/tmp/thorutil-mouse.suspend"
     private const val CMD = "/data/local/tmp/thorutil-mouse.cmd"
+    private const val TAP = "/data/local/tmp/thorutil-mouse.tap"
     private const val ROTATION = "/data/local/tmp/thorutil-rotation"
     private const val TOUCH = "/data/local/tmp/thorutil-touch"
 
+    private val proc = NativeDaemon(
+        libName = "libthormouse.so",
+        statePath = STATE,
+        logPath = LOG,
+        suspendPath = SUSPEND,
+        pidField = 2,
+        wakeSignal = "-USR2",
+    )
+
     data class State(val running: Boolean, val active: Boolean)
 
-    fun binary(ctx: Context) = File(ctx.applicationInfo.nativeLibraryDir, "libthormouse.so").absolutePath
-
-    private fun pidExpr() = "\$(cut -d' ' -f2 $STATE 2>/dev/null)"
+    fun binary(ctx: Context) = proc.binary(ctx)
 
     fun state(): State {
-        // /proc/$p works from shell even when the daemon was started by root at boot.
-        val r = Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ] && cut -d' ' -f1 $STATE")
-        if (r.code != 0) return State(false, false)
-        return State(true, r.out.trim() == "1")
+        val line = proc.readStateLine() ?: return State(false, false)
+        return State(true, line.trim().startsWith("1 "))
     }
 
     // Set by a manual stop so the keeper watchdog leaves the daemon down until the next start.
@@ -31,40 +36,32 @@ object Daemon {
     var stopped = false
         private set
 
-    fun start(ctx: Context): Boolean {
+    fun start(ctx: Context): Boolean = synchronized(proc.lock) {
         stopped = false
-        if (state().running) return true
         val dpad = if (Prefs.mouseRotateDpad(ctx)) " -r" else ""
         val args = "-d ${Prefs.deadzone(ctx)} -p ${Prefs.pointerSpeed(ctx)} -s ${Prefs.scrollSpeed(ctx)}$dpad"
-        // A root-run daemon (root Shizuku or su) leaves root-owned files a shell-run one cannot write.
-        val cmd = "rm -f $LOG $TOUCH; setsid ${binary(ctx)} $args </dev/null >$LOG 2>&1 & sleep 0.3; " +
-            "p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ]"
-        return Priv.sh(cmd).code == 0
+        // Remove stale root-owned touch file before launch so shell-run daemon can overwrite it.
+        proc.launch(ctx, args = args, preCmd = "rm -f $TOUCH")
     }
 
-    fun stop(): Boolean {
+    fun stop(): Boolean = synchronized(proc.lock) {
         stopped = true
-        return kill()
+        proc.kill()
     }
 
-    // Signal via active backend, falling back to root if the daemon is uid 0 and Shizuku is shell.
-    private fun signal(sig: String): Boolean {
-        val cmd = "p=${pidExpr()}; [ -n \"\$p\" ] && kill $sig \$p 2>/dev/null"
-        if (Priv.sh(cmd).code == 0) return true
-        return Priv.rootReady() && Priv.shRoot(cmd).code == 0
-    }
+    fun toggle(): Boolean = proc.signal("-USR1")
 
-    private fun kill(): Boolean {
-        signal("-TERM")
-        return true
+    // Fast path: ask the running daemon to pulse its persistent AYN uinput node (<10 ms);
+    // falls back to spawning `-k` when the daemon is stopped.
+    fun tap(ctx: Context): Boolean {
+        if (Priv.sh("touch $TAP && chmod 666 $TAP").code == 0 && proc.signal("-USR2")) return true
+        return Priv.sh("${binary(ctx)} -k").code == 0
     }
-
-    fun toggle(): Boolean = signal("-USR1")
 
     // Sets focus.current in the daemon; the pointer follows only while mouse mode is on.
     fun pointer(bottom: Boolean): Boolean {
         if (Priv.sh("echo ${if (bottom) "bottom" else "top"} > $CMD; chmod 666 $CMD").code != 0) return false
-        return signal("-USR2")
+        return proc.signal("-USR2")
     }
 
     // Display rotations (Surface.ROTATION_*) so stick motion follows the held orientation.
@@ -72,24 +69,16 @@ object Daemon {
     fun rotation(top: Int, bottom: Int): Boolean {
         val w = Priv.sh("echo $top $bottom > $ROTATION; chmod 666 $ROTATION")
         if (w.code != 0) return false
-        signal("-USR2")
+        proc.signal("-USR2")
         return true
     }
 
     // Returns true only when the suspend state actually changed.
-    fun setSuspended(on: Boolean): Boolean {
-        val change = if (on) "[ -e $SUSPEND ] || { touch $SUSPEND; echo y; }" else "[ -e $SUSPEND ] && { rm -f $SUSPEND; echo y; }"
-        if (Priv.sh("$change; true").out.trim() != "y") return false
-        signal("-USR2")
-        return true
-    }
+    fun setSuspended(on: Boolean): Boolean = proc.setSuspendFileIfChanged(on)
 
-    fun restart(ctx: Context): Boolean {
-        kill()
-        repeat(15) {
-            if (!state().running) return@repeat
-            Thread.sleep(100)
-        }
-        return start(ctx)
+    fun restart(ctx: Context): Boolean = synchronized(proc.lock) {
+        proc.kill()
+        proc.waitStopped()
+        start(ctx)
     }
 }

@@ -125,12 +125,16 @@ object AutoLaunch {
     fun watchdogTick(ctx: Context, interactive: Boolean) {
         val apps = list(ctx).filter { it.keepAlive }
         if (apps.isEmpty()) return
+        val safeList = apps.mapNotNull { a -> safePkg(a.pkg)?.let { a to it } }
+        if (safeList.isEmpty()) return
+        // Single batched shell check for all keep-alive packages.
+        val checkCmd = safeList.joinToString("; ") { (_, p) -> "pidof $p >/dev/null 2>&1 && echo $p" } + "; true"
+        val running = Priv.sh(checkCmd).out.lines().map { it.trim() }.toSet()
         val now = System.currentTimeMillis()
-        for (app in apps) {
-            if (isRunning(app.pkg)) continue
+        for ((app, p) in safeList) {
+            if (p in running) continue
             val prev = lastRelaunch[app.pkg] ?: 0L
             if (now - prev < RELAUNCH_COOLDOWN_MS) continue
-            val p = safePkg(app.pkg) ?: continue
             lastRelaunch[app.pkg] = now
             whitelist(p)
             // Try silent BOOT_COMPLETED wake first so background services recover without stealing focus.

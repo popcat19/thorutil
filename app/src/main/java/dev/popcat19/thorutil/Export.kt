@@ -64,7 +64,7 @@ object Export {
     private const val FORMAT = 1
 
     fun export(ctx: Context, s: Set<Section>): String {
-        val p = ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
+        val p = Prefs.prefs(ctx)
         val j = JSONObject()
         for ((k, v) in p.all) {
             val sec = if (k.startsWith("fb_")) Section.FEEDBACK else sections[k]
@@ -78,7 +78,7 @@ object Export {
         val root = JSONObject(json)
         require(root.optString("app") == "thorutil") { "Not a ThorUtil config" }
         val j = root.getJSONObject("prefs")
-        val p = ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
+        val p = Prefs.prefs(ctx)
         val e = p.edit()
         var n = 0
         for (k in j.keys()) {

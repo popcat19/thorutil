@@ -1,6 +1,8 @@
 package dev.popcat19.thorutil.ayn
 
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
@@ -36,7 +38,7 @@ object AynActions {
     private fun name(d: Int) = if (d == BOTTOM) "bottom" else "top"
 
     fun tap(ctx: Context) {
-        Priv.sh("${Daemon.binary(ctx)} -k")
+        Daemon.tap(ctx)
     }
 
     fun back(ctx: Context) {
@@ -104,7 +106,7 @@ object AynActions {
         }
         val cat = if (d == BOTTOM) "android.intent.category.SECONDARY_HOME" else "android.intent.category.HOME"
         Log.i(TAG, "home -> $d ($cat)")
-        val comp = resolveHomeComponent(cat)
+        val comp = resolveHomeComponent(ctx, cat)
         val r = if (comp != null) {
             Priv.sh("am start --display $d -f 0x10200000 -n '$comp'")
         } else {
@@ -117,7 +119,15 @@ object AynActions {
         if (display != null) Feedback.show(ctx, FeedbackType.HOME, "Home: ${name(d)}", d == TOP, d)
     }
 
-    private fun resolveHomeComponent(cat: String): String? {
+    private fun resolveHomeComponent(ctx: Context, cat: String): String? {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(cat)
+        val ai = runCatching {
+            ctx.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo
+        }.getOrNull()
+        if (ai != null && ai.packageName != "android") {
+            val comp = "${ai.packageName}/${ai.name}".filter { it.isLetterOrDigit() || it in "._/$" }
+            if ('/' in comp) return comp
+        }
         val out = Priv.sh("cmd package resolve-activity --brief -a android.intent.action.MAIN -c $cat").out
         val line = out.lines().map { it.trim() }.lastOrNull { '/' in it && !it.startsWith("priority=") } ?: return null
         val safe = line.filter { it.isLetterOrDigit() || it in "._/$" }
@@ -202,8 +212,11 @@ object AynActions {
         val all = tasks()
         val top = all.firstOrNull { it.display == TOP }
         val bottom = all.firstOrNull { it.display == BOTTOM }
-        if (top != null) Priv.sh("am display move-stack ${top.rootId} $BOTTOM")
-        if (bottom != null) Priv.sh("am display move-stack ${bottom.rootId} $TOP")
+        val cmds = buildList {
+            if (top != null) add("am display move-stack ${top.rootId} $BOTTOM")
+            if (bottom != null) add("am display move-stack ${bottom.rootId} $TOP")
+        }
+        if (cmds.isNotEmpty()) Priv.sh(cmds.joinToString("; "))
     }
 
     private fun recentsShown(): Boolean {

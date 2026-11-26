@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.Priv
+import dev.popcat19.thorutil.SwitchRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -52,7 +53,7 @@ object AynService {
 }
 
 @Composable
-fun AynCard(epoch: Int = 0) {
+fun AynCard(epoch: Int = 0, uiActive: Boolean = true) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var on by remember { mutableStateOf(AynService.enabled(ctx)) }
@@ -62,14 +63,9 @@ fun AynCard(epoch: Int = 0) {
     var backGestures by remember(epoch) { mutableStateOf(Prefs.aynBackGestures(ctx)) }
     var homeSkipBdsa by remember(epoch) { mutableStateOf(Prefs.aynHomeSkipBdsa(ctx)) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
+    LaunchedEffect(uiActive) {
+        while (uiActive) {
             on = AynService.enabled(ctx)
-            focusCombos = Prefs.aynFocusCombos(ctx)
-            focusMovesPad = Prefs.aynFocusMovesPad(ctx)
-            homeDoubleRecents = Prefs.aynHomeDoubleRecents(ctx)
-            backGestures = Prefs.aynBackGestures(ctx)
-            homeSkipBdsa = Prefs.aynHomeSkipBdsa(ctx)
             delay(2000)
         }
     }
@@ -87,57 +83,47 @@ fun AynCard(epoch: Int = 0) {
                 })
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Focus combos (AYN + L1/R1/Select)")
-                    Text("Disable so combos cannot unfocus a running game", style = MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked = focusCombos, onCheckedChange = {
-                    focusCombos = it
-                    Prefs.setAynFocusCombos(ctx, it)
-                })
+            SwitchRow(
+                title = "Focus combos (AYN + L1/R1/Select)",
+                subtitle = "Disable so combos cannot unfocus a running game",
+                checked = focusCombos,
+            ) {
+                focusCombos = it
+                Prefs.setAynFocusCombos(ctx, it)
             }
             if (focusCombos) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Focus combos steer gamepad")
-                        Text("Off: move mouse pointer only; keep pad focus locked", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(checked = focusMovesPad, onCheckedChange = {
-                        focusMovesPad = it
-                        Prefs.setAynFocusMovesPad(ctx, it)
-                    })
+                SwitchRow(
+                    title = "Focus combos steer gamepad",
+                    subtitle = "Off: move mouse pointer only; keep pad focus locked",
+                    checked = focusMovesPad,
+                ) {
+                    focusMovesPad = it
+                    Prefs.setAynFocusMovesPad(ctx, it)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Home 2x → Recents")
-                    Text("Frees AYN + B", style = MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked = homeDoubleRecents, onCheckedChange = {
-                    homeDoubleRecents = it
-                    Prefs.setAynHomeDoubleRecents(ctx, it)
-                })
+            SwitchRow(
+                title = "Home 2x → Recents",
+                subtitle = "Frees AYN + B",
+                checked = homeDoubleRecents,
+            ) {
+                homeDoubleRecents = it
+                Prefs.setAynHomeDoubleRecents(ctx, it)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Back 2x → Prev app · Back hold → Swap")
-                    Text("Frees Back + L1/R1 and AYN + Start", style = MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked = backGestures, onCheckedChange = {
-                    backGestures = it
-                    Prefs.setAynBackGestures(ctx, it)
-                })
+            SwitchRow(
+                title = "Back 2x → Prev app · Back hold → Swap",
+                subtitle = "Frees Back + L1/R1 and AYN + Start",
+                checked = backGestures,
+            ) {
+                backGestures = it
+                Prefs.setAynBackGestures(ctx, it)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Home skips AYN/BDSA overlay")
-                    Text("Lone Home targets top screen when BDSA is open on bottom", style = MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked = homeSkipBdsa, onCheckedChange = {
-                    homeSkipBdsa = it
-                    Prefs.setAynHomeSkipBdsa(ctx, it)
-                })
+            SwitchRow(
+                title = "Home skips AYN/BDSA overlay",
+                subtitle = "Lone Home targets top screen when BDSA is open on bottom",
+                checked = homeSkipBdsa,
+            ) {
+                homeSkipBdsa = it
+                Prefs.setAynHomeSkipBdsa(ctx, it)
             }
 
             HorizontalDivider(Modifier.padding(vertical = 4.dp))

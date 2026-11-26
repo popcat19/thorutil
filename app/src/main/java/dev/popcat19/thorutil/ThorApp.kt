@@ -22,8 +22,11 @@ class ThorApp : Application() {
 
     private fun kick(why: String) {
         if (!Prefs.daemonOnBoot(this) && !Prefs.fanManaged(this) && !Prefs.perfAdaptive(this)) return
-        Thread {
-            if (!Priv.shizukuReady()) return@Thread Unit.also { Log.i(TAG, "$why: shizuku not ready") }
+        Bg.post {
+            if (!Priv.shizukuReady()) {
+                Log.i(TAG, "$why: shizuku not ready")
+                return@post
+            }
             if (Prefs.daemonOnBoot(this) && !Daemon.state().running) {
                 Log.i(TAG, "$why: start daemon -> ${Daemon.start(this)}")
             }
@@ -33,7 +36,7 @@ class ThorApp : Application() {
             if (Prefs.perfAdaptive(this) && !PerfDaemon.stopped && !PerfDaemon.state().running) {
                 Log.i(TAG, "$why: start perf -> ${PerfDaemon.start(this)}")
             }
-        }.start()
+        }
     }
 
     companion object {

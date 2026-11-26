@@ -4,6 +4,7 @@ import dev.popcat19.thorutil.feedback.Feedback
 import dev.popcat19.thorutil.feedback.FeedbackType
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import dev.popcat19.thorutil.Bg
 import dev.popcat19.thorutil.KeeperService
 import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.Rotation
@@ -15,10 +16,10 @@ class RotationTileService : TileService() {
 
     override fun onClick() {
         if (!Rotation.canOverlay(this)) {
-            Thread {
+            Bg.post {
                 Rotation.grantOverlay(this)
                 if (Rotation.canOverlay(this)) cycle()
-            }.start()
+            }
             return
         }
         cycle()

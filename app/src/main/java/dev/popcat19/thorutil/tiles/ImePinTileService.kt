@@ -2,6 +2,7 @@ package dev.popcat19.thorutil.tiles
 
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import dev.popcat19.thorutil.Bg
 import dev.popcat19.thorutil.KeeperService
 import dev.popcat19.thorutil.PinMode
 import dev.popcat19.thorutil.Prefs
@@ -17,10 +18,10 @@ class ImePinTileService : TileService() {
             else -> PinMode.OFF
         }
         Prefs.setPin(this, next != PinMode.OFF, if (next == PinMode.OFF) Prefs.pinMode(this) else next)
-        Thread {
+        Bg.post {
             PinMode.apply(next)
             KeeperService.sync(applicationContext)
-        }.start()
+        }
         render()
     }
 

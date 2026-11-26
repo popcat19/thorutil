@@ -79,7 +79,10 @@ object Rotation {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
-        ).apply { screenOrientation = mode.orientation }
+        ).apply {
+            screenOrientation = mode.orientation
+            alpha = 0f
+        }
         val v = views[id]
         if (v != null) {
             v.context.getSystemService(WindowManager::class.java).updateViewLayout(v, lp)

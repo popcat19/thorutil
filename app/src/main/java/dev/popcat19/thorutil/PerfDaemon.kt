@@ -3,7 +3,6 @@ package dev.popcat19.thorutil
 import android.content.Context
 import android.provider.Settings
 import android.util.Log
-import java.io.File
 
 // Controls the native thor-perf daemon (libthorperf.so): auto-cpufreq style adaptive Odin
 // performance mode scaling. Raises performance_mode rapidly under CPU/single-core/GPU load
@@ -16,6 +15,15 @@ object PerfDaemon {
     private const val TAG = "ThorUtil/Perf"
     const val MODE_KEY = "performance_mode"
 
+    private val proc = NativeDaemon(
+        libName = "libthorperf.so",
+        statePath = STATE,
+        logPath = LOG,
+        suspendPath = SUSPEND,
+        pidField = 1,
+        wakeSignal = "-USR1",
+    )
+
     data class State(
         val running: Boolean,
         val mode: Int,
@@ -24,9 +32,7 @@ object PerfDaemon {
         val gpuPct: Int,
     )
 
-    fun binary(ctx: Context) = File(ctx.applicationInfo.nativeLibraryDir, "libthorperf.so").absolutePath
-
-    private fun pidExpr() = "\$(cut -d' ' -f1 $STATE 2>/dev/null)"
+    fun binary(ctx: Context) = proc.binary(ctx)
 
     @Volatile
     private var screenOff = false
@@ -54,9 +60,8 @@ object PerfDaemon {
     }
 
     fun state(): State {
-        val r = Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ] && cat $STATE")
-        if (r.code != 0) return State(false, 0, 0, 0, 0)
-        val f = r.out.trim().split(" ")
+        val out = proc.readStateLine() ?: return State(false, 0, 0, 0, 0)
+        val f = out.trim().split(" ")
         if (f.size < 5) return State(false, 0, 0, 0, 0)
         return State(
             running = true,
@@ -67,26 +72,21 @@ object PerfDaemon {
         )
     }
 
-    private fun syncSuspend(): Boolean =
-        Priv.sh(if (screenOff) "touch $SUSPEND; chmod 666 $SUSPEND" else "rm -f $SUSPEND").code == 0
+    private fun syncSuspend(): Boolean = proc.setSuspendFile(screenOff)
 
-    fun start(ctx: Context): Boolean {
+    fun start(ctx: Context): Boolean = synchronized(proc.lock) {
         stopped = false
-        if (state().running) return syncSuspend()
-        Prefs.setSavedPerfMode(ctx, currentMode(ctx))
-        val suspendCmd = if (screenOff) "touch $SUSPEND; chmod 666 $SUSPEND;" else "rm -f $SUSPEND;"
-        val cmd = "rm -f $STATE $LOG; $suspendCmd setsid ${binary(ctx)} </dev/null >$LOG 2>&1 & sleep 0.3; " +
-            "p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ]"
-        return Priv.sh(cmd).code == 0
+        if (!proc.isRunning()) Prefs.setSavedPerfMode(ctx, currentMode(ctx))
+        proc.launch(ctx, suspended = screenOff)
     }
 
-    fun stop(ctx: Context): Boolean {
+    fun stop(ctx: Context): Boolean = synchronized(proc.lock) {
         stopped = true
-        val ok = kill()
+        val ok = proc.kill()
         Priv.sh("rm -f $SUSPEND")
         val saved = Prefs.savedPerfMode(ctx)
         Priv.sh("settings put system $MODE_KEY $saved; setprop persist.vendor.debug.mode $saved 2>/dev/null")
-        return ok
+        ok
     }
 
     fun setScreenOff(off: Boolean): Boolean {
@@ -98,22 +98,13 @@ object PerfDaemon {
         if (!Prefs.perfAdaptive(ctx)) return
         val saved = Prefs.savedPerfMode(ctx)
         Log.i(TAG, "shutdown: restoring performance_mode=$saved")
-        kill()
+        proc.kill()
         Priv.sh("settings put system $MODE_KEY $saved; setprop persist.vendor.debug.mode $saved 2>/dev/null")
     }
 
-    private fun kill(): Boolean {
-        val cmd = "p=${pidExpr()}; [ -n \"\$p\" ] && kill \$p 2>/dev/null"
-        if (Priv.sh(cmd).code != 0 && Priv.rootReady()) Priv.shRoot(cmd)
-        return true
-    }
-
-    fun restart(ctx: Context): Boolean {
-        kill()
-        repeat(15) {
-            if (!state().running) return@repeat
-            Thread.sleep(100)
-        }
-        return start(ctx)
+    fun restart(ctx: Context): Boolean = synchronized(proc.lock) {
+        proc.kill()
+        proc.waitStopped()
+        start(ctx)
     }
 }

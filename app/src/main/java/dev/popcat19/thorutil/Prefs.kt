@@ -60,8 +60,17 @@ object Prefs {
     const val FAN_ZERO_OFF_C_DEFAULT = 44f
     const val FAN_ZERO_ON_C_DEFAULT = 48f
 
-    private fun sp(ctx: Context): SharedPreferences =
-        ctx.createDeviceProtectedStorageContext().getSharedPreferences("thorutil", Context.MODE_PRIVATE)
+    @Volatile
+    private var cachedSp: SharedPreferences? = null
+
+    internal fun prefs(ctx: Context): SharedPreferences = cachedSp ?: synchronized(this) {
+        cachedSp ?: ctx.applicationContext
+            .createDeviceProtectedStorageContext()
+            .getSharedPreferences("thorutil", Context.MODE_PRIVATE)
+            .also { cachedSp = it }
+    }
+
+    private fun sp(ctx: Context): SharedPreferences = prefs(ctx)
 
     fun pinManaged(ctx: Context) = sp(ctx).getBoolean(MANAGED, false)
     fun pinMode(ctx: Context) = PinMode.of(sp(ctx).getInt(PIN, PinMode.BOTTOM.id))

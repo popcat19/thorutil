@@ -15,6 +15,7 @@ object VolumeLink {
     const val ACTION = "android.media.VOLUME_CHANGED_ACTION"
     const val EXTRA_STREAM = "android.media.EXTRA_VOLUME_STREAM_TYPE"
 
+    private val lock = Any()
     private var last = ""
 
     private fun headphones(am: AudioManager) = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
@@ -35,12 +36,14 @@ object VolumeLink {
 
     // Worker thread.
     fun sync(ctx: Context, force: Boolean = false) {
-        if (!Prefs.volumeLink(ctx)) return
-        val (key, level) = target(ctx)
-        val sig = "$key $level"
-        if (!force && sig == last) return
-        val ok = Priv.sh("settings put system $KEY $level; settings put system $KEY_HEADPHONES $level").code == 0
-        if (ok) last = sig
-        Log.i(TAG, "$KEY=$level $KEY_HEADPHONES=$level ${if (ok) "ok" else "failed"}")
+        synchronized(lock) {
+            if (!Prefs.volumeLink(ctx)) return
+            val (key, level) = target(ctx)
+            val sig = "$key $level"
+            if (!force && sig == last) return
+            val ok = Priv.sh("settings put system $KEY $level; settings put system $KEY_HEADPHONES $level").code == 0
+            if (ok) last = sig
+            Log.i(TAG, "$KEY=$level $KEY_HEADPHONES=$level ${if (ok) "ok" else "failed"}")
+        }
     }
 }

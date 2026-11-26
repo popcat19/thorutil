@@ -23,9 +23,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun FeedbackCard() {
+fun FeedbackCard(epoch: Int = 0) {
     val ctx = LocalContext.current
-    var invert by remember { mutableStateOf(Feedback.inverted(ctx)) }
+    var invert by remember(epoch) { mutableStateOf(Feedback.inverted(ctx)) }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -36,8 +36,8 @@ fun FeedbackCard() {
                 Text("Haptic", Modifier.width(64.dp), textAlign = TextAlign.Center)
             }
             FeedbackType.entries.forEach { t ->
-                var toast by remember { mutableStateOf(Feedback.toastOn(ctx, t)) }
-                var haptic by remember { mutableStateOf(Feedback.hapticOn(ctx, t)) }
+                var toast by remember(epoch) { mutableStateOf(Feedback.toastOn(ctx, t)) }
+                var haptic by remember(epoch) { mutableStateOf(Feedback.hapticOn(ctx, t)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(t.label, Modifier.weight(1f))
                     Checkbox(toast, { toast = it; Feedback.setToast(ctx, t, it) }, Modifier.width(64.dp))

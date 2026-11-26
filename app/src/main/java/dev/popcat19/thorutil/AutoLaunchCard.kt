@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,10 +34,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun AutoLaunchCard() {
+fun AutoLaunchCard(epoch: Int = 0) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var apps by remember { mutableStateOf(AutoLaunch.list(ctx)) }
+    var apps by remember(epoch) { mutableStateOf(AutoLaunch.list(ctx)) }
     var showPicker by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
 
@@ -121,12 +122,16 @@ fun AutoLaunchCard() {
     }
 
     if (showPicker) {
-        val installed = remember { AutoLaunch.installedLaunchable(ctx) }
+        var installed by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
+        LaunchedEffect(Unit) {
+            installed = withContext(Dispatchers.IO) { AutoLaunch.installedLaunchable(ctx) }
+        }
         val existing = remember(apps) { apps.map { it.pkg }.toSet() }
         var query by remember { mutableStateOf("") }
         val filtered = remember(installed, existing, query) {
+            val list = installed ?: return@remember emptyList()
             val q = query.trim().lowercase()
-            installed.filter { (pkg, label) ->
+            list.filter { (pkg, label) ->
                 pkg !in existing && (q.isEmpty() || label.lowercase().contains(q) || pkg.lowercase().contains(q))
             }
         }
@@ -142,21 +147,25 @@ fun AutoLaunchCard() {
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
-                        items(filtered, key = { it.first }) { (pkg, label) ->
-                            Column(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        val added = ManagedApp(pkg = pkg, label = label)
-                                        update(apps + added)
-                                        Thread { AutoLaunch.whitelist(pkg) }.start()
-                                        showPicker = false
-                                    }
-                                    .padding(vertical = 8.dp)
-                            ) {
-                                Text(label, style = MaterialTheme.typography.bodyMedium)
-                                Text(pkg, style = MaterialTheme.typography.bodySmall)
+                    if (installed == null) {
+                        Text("Loading installed apps...", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                            items(filtered, key = { it.first }) { (pkg, label) ->
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            val added = ManagedApp(pkg = pkg, label = label)
+                                            update(apps + added)
+                                            Bg.post { AutoLaunch.whitelist(pkg) }
+                                            showPicker = false
+                                        }
+                                        .padding(vertical = 8.dp)
+                                ) {
+                                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                                    Text(pkg, style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
                     }

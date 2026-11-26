@@ -9,16 +9,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -39,21 +38,21 @@ private fun format(points: List<Point>) =
 @Composable
 fun FanCard(epoch: Int = 0, uiActive: Boolean = true) {
     val ctx = LocalContext.current
-    var managed by remember { mutableStateOf(Prefs.fanManaged(ctx)) }
-    val points = remember {
+    var managed by remember(epoch) { mutableStateOf(Prefs.fanManaged(ctx)) }
+    val points = remember(epoch) {
         mutableStateListOf(*parse(Prefs.fanCurve(ctx)).ifEmpty { parse(Prefs.FAN_CURVE_DEFAULT) }.toTypedArray())
     }
-    var tau by remember { mutableStateOf(Prefs.fanTau(ctx)) }
-    var hyst by remember { mutableStateOf(Prefs.fanHyst(ctx)) }
-    var up by remember { mutableStateOf(Prefs.fanSlewUp(ctx)) }
-    var down by remember { mutableStateOf(Prefs.fanSlewDown(ctx)) }
-    var guardC by remember { mutableStateOf(Prefs.fanGuardC(ctx)) }
-    var guardS by remember { mutableStateOf(Prefs.fanGuardS(ctx).toFloat()) }
+    var tau by remember(epoch) { mutableFloatStateOf(Prefs.fanTau(ctx)) }
+    var hyst by remember(epoch) { mutableFloatStateOf(Prefs.fanHyst(ctx)) }
+    var up by remember(epoch) { mutableFloatStateOf(Prefs.fanSlewUp(ctx)) }
+    var down by remember(epoch) { mutableFloatStateOf(Prefs.fanSlewDown(ctx)) }
+    var guardC by remember(epoch) { mutableFloatStateOf(Prefs.fanGuardC(ctx)) }
+    var guardS by remember(epoch) { mutableFloatStateOf(Prefs.fanGuardS(ctx).toFloat()) }
     var zeroBat by remember(epoch) { mutableStateOf(Prefs.fanZeroBattery(ctx)) }
-    var zeroOff by remember { mutableStateOf(Prefs.fanZeroOffC(ctx)) }
-    var zeroOn by remember { mutableStateOf(Prefs.fanZeroOnC(ctx)) }
+    var zeroOff by remember(epoch) { mutableFloatStateOf(Prefs.fanZeroOffC(ctx)) }
+    var zeroOn by remember(epoch) { mutableFloatStateOf(Prefs.fanZeroOnC(ctx)) }
     var live by remember { mutableStateOf<FanDaemon.State?>(null) }
-    var dirty by remember { mutableStateOf(false) }
+    var dirty by remember(epoch) { mutableStateOf(false) }
 
     LaunchedEffect(managed, uiActive) {
         if (!managed) {
@@ -61,12 +60,12 @@ fun FanCard(epoch: Int = 0, uiActive: Boolean = true) {
             return@LaunchedEffect
         }
         while (uiActive) {
-            live = withContext(Dispatchers.IO) { FanDaemon.state() }
+            live = withContext(Dispatchers.IO) { FanDaemon.state(includeRpm = true) }
             delay(2000)
         }
     }
 
-    fun apply() = Thread {
+    fun apply() = Bg.post {
         Prefs.setFanCurve(ctx, format(points))
         Prefs.setFanTau(ctx, tau)
         Prefs.setFanHyst(ctx, hyst)
@@ -78,27 +77,22 @@ fun FanCard(epoch: Int = 0, uiActive: Boolean = true) {
         Prefs.setFanZeroOffC(ctx, zeroOff)
         Prefs.setFanZeroOnC(ctx, zeroOn)
         if (Prefs.fanManaged(ctx)) FanDaemon.restart(ctx)
-    }.start()
+    }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Fan curve", style = MaterialTheme.typography.titleMedium)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Smoothed Smart curve")
-                    Text(
-                        "Drives fan from board soak (xo-therm) when Smart is active; Quiet/Sport/Off go to Odin",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+            SwitchRow(
+                title = "Smoothed Smart curve",
+                subtitle = "Drives fan from board soak (xo-therm) when Smart is active; Quiet/Sport/Off go to Odin",
+                checked = managed,
+            ) {
+                managed = it
+                Prefs.setFanManaged(ctx, it)
+                Bg.post {
+                    if (it) FanDaemon.start(ctx, forceTakeover = true) else FanDaemon.stop(ctx)
+                    KeeperService.sync(ctx.applicationContext)
                 }
-                Switch(checked = managed, onCheckedChange = {
-                    managed = it
-                    Prefs.setFanManaged(ctx, it)
-                    Thread {
-                        if (it) FanDaemon.start(ctx, forceTakeover = true) else FanDaemon.stop(ctx)
-                        KeeperService.sync(ctx.applicationContext)
-                    }.start()
-                })
             }
             live?.let {
                 val status = when {
@@ -129,16 +123,14 @@ fun FanCard(epoch: Int = 0, uiActive: Boolean = true) {
             Text("Junction guard", style = MaterialTheme.typography.labelLarge)
             NumberSetting("Override temp", guardC, 80f..105f, 1f, 0, "°C", slider = false) { guardC = it; dirty = true }
             NumberSetting("Hold time", guardS, 0f..60f, 1f, 0, "s", slider = false) { guardS = it; dirty = true }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("0% fan on battery when cool")
-                    Text("Stops fan off charger below soak threshold; resumes immediately on plug-in or load", style = MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked = zeroBat, onCheckedChange = {
-                    zeroBat = it
-                    Prefs.setFanZeroBattery(ctx, it)
-                    if (Prefs.fanManaged(ctx)) Thread { FanDaemon.restart(ctx) }.start()
-                })
+            SwitchRow(
+                title = "0% fan on battery when cool",
+                subtitle = "Stops fan off charger below soak threshold; resumes immediately on plug-in or load",
+                checked = zeroBat,
+            ) {
+                zeroBat = it
+                Prefs.setFanZeroBattery(ctx, it)
+                if (Prefs.fanManaged(ctx)) Bg.post { FanDaemon.restart(ctx) }
             }
             if (zeroBat) {
                 NumberSetting("Stop below (soak)", zeroOff, 32f..55f, 1f, 0, "°C", slider = false) {
