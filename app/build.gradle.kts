@@ -15,8 +15,8 @@ android {
         applicationId = "dev.popcat19.thorutil"
         minSdk = 33
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.4.7"
+        versionCode = 13
+        versionName = "0.4.8"
         ndk { abiFilters += "arm64-v8a" }
     }
 
@@ -84,7 +84,7 @@ fun daemonTask(name: String, src: String, lib: String) = tasks.register<Exec>(na
     outputs.file(out)
     doFirst { out.get().asFile.parentFile.mkdirs() }
     commandLine(
-        "zig", "cc", "-target", "aarch64-linux-musl", "-static", "-O2", "-s",
+        "zig", "cc", "-target", "aarch64-linux-musl", "-static", "-Wall", "-Wextra", "-Werror", "-O2", "-s",
         "-o", out.get().asFile.absolutePath, srcFile.absolutePath,
     )
 }
