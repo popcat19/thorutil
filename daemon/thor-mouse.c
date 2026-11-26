@@ -44,6 +44,7 @@ static const char *state_path = "/data/local/tmp/thorutil-mouse.state";
 static const char *lock_path = "/data/local/tmp/thorutil-mouse.lock";
 static const char *suspend_path = "/data/local/tmp/thorutil-mouse.suspend";
 static const char *cmd_path = "/data/local/tmp/thorutil-mouse.cmd";
+static const char *tap_path = "/data/local/tmp/thorutil-mouse.tap";
 static const char *touch_path = "/data/local/tmp/thorutil-touch";
 static const char *rotation_path = "/data/local/tmp/thorutil-rotation";
 // Top panel is fts_ts (display 0), bottom is fts_ts_3 (display 4).
@@ -54,7 +55,7 @@ static volatile sig_atomic_t toggle_flag;
 static volatile sig_atomic_t suspend_flag;
 
 struct bridge {
-    int pad, mouse, pass, ayn_fd;
+    int pad, mouse, pass, ayn_fd, ayn_uinput;
     int active;
     int ayn;
     int back_held;
@@ -73,6 +74,8 @@ struct bridge {
     int focus;
     pid_t mover;
     int touch_fd[2];
+    int last_touch_disp;
+    long last_touch_ms;
     // ROTATION_0=0, ROTATION_90=1, ROTATION_180=2, ROTATION_270=3; [0]=top, [1]=bottom.
     int rotation[2];
 };
@@ -83,16 +86,22 @@ static long now_ms(void) {
     return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
 }
 
-// The app turns these into toast + haptic feedback.
+// The app turns these into toast + haptic feedback. Double-fork so children never stay
+// as zombies while the main loop is parked in poll(-1).
 static void notify(const char *event) {
     pid_t pid = fork();
     if (pid == 0) {
-        int nul = open("/dev/null", O_RDWR);
-        if (nul >= 0) { dup2(nul, 1); dup2(nul, 2); }
-        execl("/system/bin/am", "am", "broadcast", "-a", "dev.popcat19.thorutil.EVENT", "-p",
-              "dev.popcat19.thorutil", "--es", "event", event, (char *)NULL);
-        _exit(127);
+        pid_t g = fork();
+        if (g == 0) {
+            int nul = open("/dev/null", O_RDWR);
+            if (nul >= 0) { dup2(nul, 1); dup2(nul, 2); }
+            execl("/system/bin/am", "am", "broadcast", "-a", "dev.popcat19.thorutil.EVENT", "-p",
+                  "dev.popcat19.thorutil", "--es", "event", event, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
     }
+    if (pid > 0) waitpid(pid, NULL, 0);
 }
 
 static void on_term(int s) { (void)s; quit_flag = 1; }
@@ -108,12 +117,26 @@ static void emit(int fd, int type, int code, int val) {
     if (write(fd, &ev, sizeof(ev)) < 0 && errno != EAGAIN) perror("write");
 }
 
+static void write_atomic(const char *path, const char *buf, int len) {
+    if (len <= 0) return;
+    char tmp[128];
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    if (fd < 0) return;
+    ssize_t wr = write(fd, buf, (size_t)len);
+    close(fd);
+    if (wr == len) {
+        chmod(tmp, 0666);
+        rename(tmp, path);
+    } else {
+        unlink(tmp);
+    }
+}
+
 static void write_state(int active) {
-    FILE *f = fopen(state_path, "w");
-    if (!f) return;
-    fprintf(f, "%d %d\n", active, (int)getpid());
-    fclose(f);
-    chmod(state_path, 0666);
+    char buf[32];
+    int len = snprintf(buf, sizeof buf, "%d %d\n", active, (int)getpid());
+    write_atomic(state_path, buf, len);
 }
 
 // vendor 0 matches any id.
@@ -191,7 +214,17 @@ static int make_pass(int pad) {
     return finish_dev(fd, PASS_NAME, id);
 }
 
-// Re-sends one AYN tap for the app; uinput devices take ~100 ms to be picked up.
+// Persistent uinput device for fast lone AYN re-emit without 400ms uinput creation latency.
+static int make_ayn_uinput(void) {
+    int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return -1;
+    ioctl(fd, UI_SET_EVBIT, EV_KEY);
+    ioctl(fd, UI_SET_KEYBIT, AYN_SCAN);
+    struct input_id id = {BUS_VIRTUAL, AYN_VENDOR, AYN_PRODUCT, 1};
+    return finish_dev(fd, AYN_NAME, id);
+}
+
+// Fallback CLI path when the daemon is not running; uinput devices take ~100 ms to register.
 static int ayn_tap(void) {
     int fd = open("/dev/uinput", O_WRONLY | O_CLOEXEC);
     if (fd < 0) { perror("uinput"); return 1; }
@@ -366,6 +399,13 @@ static void stick(int rx, int ry, int rot, double *ox, double *oy) {
     *ox = x; *oy = y;
 }
 
+static int sticks_active(const struct bridge *b) {
+    double lx = b->ax[ABS_X] / AXIS_MAX, ly = b->ax[ABS_Y] / AXIS_MAX;
+    double rx = b->ax[ABS_Z] / AXIS_MAX, ry = b->ax[ABS_RZ] / AXIS_MAX;
+    double dz2 = deadzone * deadzone;
+    return (lx * lx + ly * ly > dz2) || (rx * rx + ry * ry > dz2);
+}
+
 static int take(double *acc) {
     int v = (int)*acc;
     *acc -= v;
@@ -466,6 +506,17 @@ static void sync_cmd(struct bridge *b) {
     if (b->active && b->bottom != b->focus) move_pointer(b, b->focus, 0, 0);
 }
 
+static void sync_tap(struct bridge *b) {
+    if (unlink(tap_path) != 0) return;
+    if (b->ayn_uinput < 0) b->ayn_uinput = make_ayn_uinput();
+    if (b->ayn_uinput < 0) return;
+    emit(b->ayn_uinput, EV_KEY, AYN_SCAN, 1);
+    emit(b->ayn_uinput, EV_SYN, SYN_REPORT, 0);
+    usleep(20000);
+    emit(b->ayn_uinput, EV_KEY, AYN_SCAN, 0);
+    emit(b->ayn_uinput, EV_SYN, SYN_REPORT, 0);
+}
+
 static void sync_rotation(struct bridge *b) {
     char buf[16] = {0};
     FILE *f = fopen(rotation_path, "r");
@@ -491,8 +542,14 @@ static void read_touch(struct bridge *b, int i) {
     if (n < 0 && errno != EAGAIN) { close(b->touch_fd[i]); b->touch_fd[i] = -1; return; }
     if (!down) return;
     // "<display> <CLOCK_MONOTONIC ms>", compared against SystemClock.uptimeMillis().
-    FILE *f = fopen(touch_path, "w");
-    if (f) { fprintf(f, "%d %ld\n", i ? 4 : 0, now_ms()); fclose(f); chmod(touch_path, 0666); }
+    long t = now_ms();
+    if (i != b->last_touch_disp || t - b->last_touch_ms >= 250) {
+        char buf[32];
+        int len = snprintf(buf, sizeof buf, "%d %ld\n", i ? 4 : 0, t);
+        write_atomic(touch_path, buf, len);
+        b->last_touch_disp = i;
+        b->last_touch_ms = t;
+    }
     b->focus = i;
     if (b->active && b->bottom != i) move_pointer(b, i, 0, 0);
 }
@@ -561,6 +618,7 @@ int main(int argc, char **argv) {
     }
     if (deadzone < 0 || deadzone > 0.9) { usage(argv[0]); return 2; }
 
+    umask(0);
     // Single instance: boot start and the app can both try to launch this.
     int lock = open(lock_path, O_RDONLY | O_CREAT | O_CLOEXEC, 0666);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0) {
@@ -582,8 +640,10 @@ int main(int argc, char **argv) {
 
     struct bridge b;
     memset(&b, 0, sizeof(b));
-    b.pad = b.mouse = b.pass = b.ayn_fd = -1;
+    b.pad = b.mouse = b.pass = b.ayn_fd = b.ayn_uinput = -1;
     b.touch_fd[0] = b.touch_fd[1] = -1;
+    b.last_touch_disp = -1;
+    b.ayn_uinput = make_ayn_uinput();
     write_state(0);
     // A killed daemon can leave the pointer on the bottom screen.
     move_pointer(&b, 0, 1, 1);
@@ -592,6 +652,7 @@ int main(int argc, char **argv) {
     sync_rotation(&b);
     sync_suspend(&b);
 
+    long last_tick = 0;
     while (!quit_flag) {
         if (b.pad < 0) {
             b.pad = find_dev(PAD_NAME, 0);
@@ -606,18 +667,18 @@ int main(int argc, char **argv) {
         for (int i = 0; i < 2; i++)
             if (b.touch_fd[i] < 0) b.touch_fd[i] = find_dev(touch_names[i], 0);
 
-        int timeout = b.active ? TICK_MS : -1;
+        int moving = b.active && sticks_active(&b);
+        int timeout = moving ? TICK_MS : -1;
         struct pollfd fds[4] = {{.fd = b.pad, .events = POLLIN}, {.fd = b.ayn_fd, .events = POLLIN},
                                 {.fd = b.touch_fd[0], .events = POLLIN}, {.fd = b.touch_fd[1], .events = POLLIN}};
         struct pollfd pfd;
-        long t0 = now_ms();
         int r = poll(fds, 4, timeout);
         pfd = fds[0];
         if (fds[1].revents) read_ayn(&b);
         for (int i = 0; i < 2; i++)
             if (fds[2 + i].revents) read_touch(&b, i);
 
-        if (suspend_flag) { suspend_flag = 0; sync_suspend(&b); sync_cmd(&b); sync_rotation(&b); }
+        if (suspend_flag) { suspend_flag = 0; sync_suspend(&b); sync_cmd(&b); sync_tap(&b); sync_rotation(&b); }
         if (toggle_flag) { toggle_flag = 0; if (!b.suspended) set_active(&b, !b.active); }
 
         if (r > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) goto lost;
@@ -632,12 +693,14 @@ int main(int argc, char **argv) {
         reap(&b);
         if (b.want_toggle) { b.want_toggle = 0; if (!b.suspended) set_active(&b, !b.active); }
 
-        if (b.active) {
-            static long last;
+        if (b.active && sticks_active(&b)) {
             long t = now_ms();
-            if (!last || t - last > 100) last = t0;
-            tick(&b, (t - last) / 1000.0);
-            last = t;
+            long dt_ms = (last_tick && t - last_tick <= 100) ? (t - last_tick) : TICK_MS;
+            tick(&b, dt_ms / 1000.0);
+            last_tick = t;
+        } else {
+            last_tick = 0;
+            if (b.active) b.acc_x = b.acc_y = b.acc_w = b.acc_h = 0;
         }
         continue;
     lost:
@@ -646,11 +709,14 @@ int main(int argc, char **argv) {
         set_active(&b, 0);
         close(b.pad);
         b.pad = -1;
+        last_tick = 0;
     }
 
     set_active(&b, 0);
+    destroy(&b.ayn_uinput);
     if (b.pad >= 0) close(b.pad);
     if (b.ayn_fd >= 0) close(b.ayn_fd);
+    for (int i = 0; i < 2; i++) if (b.touch_fd[i] >= 0) close(b.touch_fd[i]);
     unlink(state_path);
     return 0;
 }

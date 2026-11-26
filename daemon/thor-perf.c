@@ -20,6 +20,7 @@
 #define STAT_PATH "/proc/stat"
 #define MAX_CORES 16
 #define TICK_S 2
+#define SUSPEND_TICK_S 30
 #define LOG_TICKS 30
 
 // Promote quickly on sustained load (4 s) so brief background spikes stay in Normal;
@@ -46,11 +47,17 @@ static const char *lock_path = "/data/local/tmp/thorutil-perf.lock";
 static const char *suspend_path = "/data/local/tmp/thorutil-perf.suspend";
 static const char *change_path = "/data/local/tmp/thorutil-perf.change";
 
+static int stat_fd = -1;
+static int gpu_fd = -1;
 static volatile sig_atomic_t quit;
 
 static void on_signal(int s) {
     (void)s;
     quit = 1;
+}
+
+static void on_wake(int s) {
+    (void)s;
 }
 
 struct cpu_sample {
@@ -59,33 +66,41 @@ struct cpu_sample {
 };
 
 static int read_cpu(struct cpu_sample *agg, struct cpu_sample *cores, int *ncores) {
-    FILE *f = fopen(STAT_PATH, "re");
-    if (!f) return -1;
-    char line[256];
+    if (stat_fd < 0) return -1;
+    char buf[4096];
+    ssize_t nr = pread(stat_fd, buf, sizeof buf - 1, 0);
+    if (nr <= 0) return -1;
+    buf[nr] = 0;
+
     int n = 0;
     int got_agg = 0;
-    while (fgets(line, sizeof line, f)) {
-        if (strncmp(line, "cpu", 3) != 0) break;
+    char *p = buf;
+    while (*p) {
+        char *nl = strchr(p, '\n');
+        if (nl) *nl = 0;
+        if (strncmp(p, "cpu", 3) != 0) break;
         unsigned long long user = 0, nice = 0, sys = 0, idle = 0, iow = 0, irq = 0, sirq = 0, steal = 0;
-        int is_agg = (line[3] == ' ');
+        int is_agg = (p[3] == ' ');
         char tag[16];
-        int matched = sscanf(line, "%15s %llu %llu %llu %llu %llu %llu %llu %llu",
+        int matched = sscanf(p, "%15s %llu %llu %llu %llu %llu %llu %llu %llu",
                              tag, &user, &nice, &sys, &idle, &iow, &irq, &sirq, &steal);
-        if (matched < 5) continue;
-        unsigned long long idle_all = idle + iow;
-        unsigned long long busy = user + nice + sys + irq + sirq + steal;
-        unsigned long long total = busy + idle_all;
-        if (is_agg) {
-            agg->busy = busy;
-            agg->total = total;
-            got_agg = 1;
-        } else if (n < MAX_CORES) {
-            cores[n].busy = busy;
-            cores[n].total = total;
-            n++;
+        if (matched >= 5) {
+            unsigned long long idle_all = idle + iow;
+            unsigned long long busy = user + nice + sys + irq + sirq + steal;
+            unsigned long long total = busy + idle_all;
+            if (is_agg) {
+                agg->busy = busy;
+                agg->total = total;
+                got_agg = 1;
+            } else if (n < MAX_CORES) {
+                cores[n].busy = busy;
+                cores[n].total = total;
+                n++;
+            }
         }
+        if (!nl) break;
+        p = nl + 1;
     }
-    fclose(f);
     *ncores = n;
     return got_agg ? 0 : -1;
 }
@@ -99,12 +114,11 @@ static int pct_delta(struct cpu_sample prev, struct cpu_sample cur) {
 }
 
 static int read_gpu_busy(void) {
-    int fd = open(GPU_BUSY_PATH, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return 0;
-    char buf[32] = {0};
-    ssize_t n = read(fd, buf, sizeof buf - 1);
-    close(fd);
+    if (gpu_fd < 0) return 0;
+    char buf[32];
+    ssize_t n = pread(gpu_fd, buf, sizeof buf - 1, 0);
     if (n <= 0) return 0;
+    buf[n] = 0;
     int v = atoi(buf);
     return v < 0 ? 0 : v > 100 ? 100 : v;
 }
@@ -134,18 +148,27 @@ static void apply_mode(int mode) {
         _exit(127);
     }
     if (pid > 0) waitpid(pid, NULL, 0);
+    // Re-stamp after settings put finishes so FanTile's bounce observer sees the full 3s window.
+    mark_change();
 }
 
 // State format: pid mode cpu_pct max_core_pct gpu_pct
+// Uses raw open/write to avoid musl stdio TIOCGWINSZ ioctl SELinux audit spam.
 static void write_state(int mode, int cpu_pct, int core_pct, int gpu_pct) {
-    char tmp[128];
+    char tmp[128], buf[64];
     snprintf(tmp, sizeof tmp, "%s.tmp", state_path);
-    FILE *f = fopen(tmp, "we");
-    if (!f) return;
-    fprintf(f, "%d %d %d %d %d\n", getpid(), mode, cpu_pct, core_pct, gpu_pct);
-    fclose(f);
-    chmod(tmp, 0666);
-    rename(tmp, state_path);
+    int len = snprintf(buf, sizeof buf, "%d %d %d %d %d\n", getpid(), mode, cpu_pct, core_pct, gpu_pct);
+    if (len <= 0) return;
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    if (fd < 0) return;
+    ssize_t wr = write(fd, buf, (size_t)len);
+    close(fd);
+    if (wr == len) {
+        chmod(tmp, 0666);
+        rename(tmp, state_path);
+    } else {
+        unlink(tmp);
+    }
 }
 
 int main(void) {
@@ -156,11 +179,16 @@ int main(void) {
         return 1;
     }
 
+    stat_fd = open(STAT_PATH, O_RDONLY | O_CLOEXEC);
+    gpu_fd = open(GPU_BUSY_PATH, O_RDONLY | O_CLOEXEC);
+
     struct sigaction sa = {0};
     sa.sa_handler = on_signal;
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGHUP, &sa, NULL);
+    sa.sa_handler = on_wake;
+    sigaction(SIGUSR1, &sa, NULL);
 
     struct cpu_sample prev_agg = {0}, prev_cores[MAX_CORES] = {{0}};
     int prev_n = 0;
@@ -177,9 +205,35 @@ int main(void) {
     fprintf(stderr, "perf: adaptive loop started (%d cores)\n", prev_n);
 
     while (!quit) {
+        int suspended = access(suspend_path, F_OK) == 0;
+        if (suspended != was_suspended) {
+            was_suspended = suspended;
+            perf_ticks = 0;
+            high_ticks = 0;
+            cool_ticks = 0;
+            fprintf(stderr, "perf: %s\n", suspended ? "suspended" : "resumed");
+            if (suspended) {
+                if (mode != 0) {
+                    mode = 0;
+                    apply_mode(0);
+                }
+                write_state(0, 0, 0, 0);
+            } else {
+                // Re-seed baseline after sleep so the first awake delta covers only awake load.
+                read_cpu(&prev_agg, prev_cores, &prev_n);
+            }
+        }
+        if (suspended) {
+            // Sleep deeply while screen-off; SIGUSR1/SIGTERM wakes immediately.
+            struct timespec ts = {SUSPEND_TICK_S, 0};
+            nanosleep(&ts, NULL);
+            continue;
+        }
+
         struct timespec ts = {TICK_S, 0};
         nanosleep(&ts, NULL);
         if (quit) break;
+        if (access(suspend_path, F_OK) == 0) continue;
 
         struct cpu_sample cur_agg = {0}, cur_cores[MAX_CORES] = {{0}};
         int cur_n = 0;
@@ -196,24 +250,6 @@ int main(void) {
             prev_n = cur_n;
         }
         int gpu_pct = read_gpu_busy();
-
-        int suspended = access(suspend_path, F_OK) == 0;
-        if (suspended != was_suspended) {
-            was_suspended = suspended;
-            perf_ticks = 0;
-            high_ticks = 0;
-            cool_ticks = 0;
-            fprintf(stderr, "perf: %s\n", suspended ? "suspended" : "resumed");
-            if (suspended && mode != 0) {
-                mode = 0;
-                apply_mode(0);
-            }
-        }
-        if (suspended) {
-            write_state(mode < 0 ? 0 : mode, cpu_pct, core_pct, gpu_pct);
-            tick++;
-            continue;
-        }
 
         int want_high = (gpu_pct >= UP_HIGH_GPU || cpu_pct >= UP_HIGH_CPU || core_pct >= UP_HIGH_CORE);
         int want_perf = (gpu_pct >= UP_PERF_GPU || cpu_pct >= UP_PERF_CPU || core_pct >= UP_PERF_CORE);
