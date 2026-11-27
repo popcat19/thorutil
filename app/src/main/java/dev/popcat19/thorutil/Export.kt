@@ -15,6 +15,7 @@ object Export {
         FAN("fan", "Fan Curve"),
         PERF("perf", "Adaptive Perf"),
         AYN("ayn", "AYN Combos"),
+        RECENTS("recents", "Recents"),
         AUTOLAUNCH("autolaunch", "Boot & Background Apps"),
     }
 
@@ -59,6 +60,8 @@ object Export {
         "ayn_back_gestures" to Section.AYN,
         "ayn_home_skip_bdsa" to Section.AYN,
         "ayn_screen_lock" to Section.AYN,
+        "recents_overlay" to Section.RECENTS,
+        "recents_locked_pkgs" to Section.RECENTS,
         "autolaunch_apps" to Section.AUTOLAUNCH,
     )
 

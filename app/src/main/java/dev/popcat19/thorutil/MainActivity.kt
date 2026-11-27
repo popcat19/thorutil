@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.popcat19.thorutil.ayn.AynCard
 import dev.popcat19.thorutil.feedback.FeedbackCard
+import dev.popcat19.thorutil.recents.RecentsCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -161,6 +162,7 @@ private fun Screen(modifier: Modifier, openChangelogSignal: Int, uiActive: Boole
         PerfCard(prefsEpoch, uiActive)
         MouseCard(prefsEpoch, uiActive)
         AynCard(prefsEpoch, uiActive)
+        RecentsCard(prefsEpoch, uiActive)
         AutoLaunchCard(prefsEpoch)
         FeedbackCard(prefsEpoch)
         ExportCard(onImported = { prefsEpoch++ })

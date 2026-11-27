@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import dev.popcat19.thorutil.ayn.AynActions
+import dev.popcat19.thorutil.feedback.Feedback
+import dev.popcat19.thorutil.recents.RecentsOverlay
 import org.json.JSONObject
 
 // Declarative preference changelog. Every new behavior pref ships as mkDefault (preserving
@@ -177,6 +179,18 @@ object Changelog {
             applyLegacy = { Prefs.setAynScreenLock(it, false) },
         ),
         PrefChange(
+            id = "recents_overlay",
+            revision = 1,
+            version = "0.5.0",
+            title = "Per-screen recents overlay",
+            summary = "Replaces stock Recents with a gamepad + touch task switcher on the active display. Supports Top / Bottom / All tabs, app lock, move screen, app info, clear all, and respects AYN+Y screen lock.",
+            legacyLabel = "Legacy: stock Android Recents (top)",
+            newLabel = "New: per-screen recents overlay",
+            isNew = { Prefs.recentsOverlay(it) },
+            applyNew = { Prefs.setRecentsOverlay(it, true) },
+            applyLegacy = { Prefs.setRecentsOverlay(it, false) },
+        ),
+        PrefChange(
             id = "fan_zero_battery",
             revision = 1,
             version = "0.4.7",
@@ -272,6 +286,11 @@ object Changelog {
             }
             if (Prefs.pipFixMode(app) == PipFixMode.OVERLAY && !Rotation.canOverlay(app)) {
                 Rotation.grantOverlay(app)
+            }
+            if (Prefs.recentsOverlay(app)) {
+                if (Feedback.a11y == null && !Rotation.canOverlay(app)) Rotation.grantOverlay(app)
+            } else {
+                RecentsOverlay.dismiss()
             }
             if (!Prefs.aynScreenLock(app)) AynActions.unlock(app, notify = false)
             KeeperService.sync(app)

@@ -49,6 +49,8 @@ object Prefs {
     private const val AYN_BACK_GESTURES = "ayn_back_gestures"
     private const val AYN_HOME_SKIP_BDSA = "ayn_home_skip_bdsa"
     private const val AYN_SCREEN_LOCK = "ayn_screen_lock"
+    private const val RECENTS_OVERLAY = "recents_overlay"
+    private const val RECENTS_LOCKED_PKGS = "recents_locked_pkgs"
     private const val AUTOLAUNCH_APPS = "autolaunch_apps"
     private const val CHANGELOG_SEEN = "changelog_seen"
     private const val LAST_NATIVE_DIR = "last_native_dir"
@@ -210,6 +212,33 @@ object Prefs {
 
     fun aynScreenLock(ctx: Context) = sp(ctx).getBoolean(AYN_SCREEN_LOCK, false)
     fun setAynScreenLock(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_SCREEN_LOCK, v).apply()
+
+    fun recentsOverlay(ctx: Context) = sp(ctx).getBoolean(RECENTS_OVERLAY, false)
+    fun setRecentsOverlay(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(RECENTS_OVERLAY, v).apply()
+
+    fun recentsLockedPackages(ctx: Context): Set<String> {
+        val raw = sp(ctx).getString(RECENTS_LOCKED_PKGS, "") ?: ""
+        if (raw.isBlank()) return emptySet()
+        return raw.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    }
+
+    fun setRecentsLockedPackages(ctx: Context, pkgs: Set<String>) {
+        val encoded = pkgs.map { it.trim() }.filter { it.isNotEmpty() }.sorted().joinToString("\n")
+        sp(ctx).edit().putString(RECENTS_LOCKED_PKGS, encoded).apply()
+    }
+
+    fun toggleRecentsLockedPackage(ctx: Context, pkg: String): Boolean {
+        val cur = recentsLockedPackages(ctx).toMutableSet()
+        val locked = if (pkg in cur) {
+            cur.remove(pkg)
+            false
+        } else {
+            cur.add(pkg)
+            true
+        }
+        setRecentsLockedPackages(ctx, cur)
+        return locked
+    }
 
     fun autoLaunchApps(ctx: Context): String = sp(ctx).getString(AUTOLAUNCH_APPS, "[]") ?: "[]"
     fun setAutoLaunchApps(ctx: Context, json: String) = sp(ctx).edit().putString(AUTOLAUNCH_APPS, json).apply()

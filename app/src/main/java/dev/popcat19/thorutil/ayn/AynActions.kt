@@ -13,6 +13,7 @@ import dev.popcat19.thorutil.Priv
 import dev.popcat19.thorutil.brightness.BrightnessLink
 import dev.popcat19.thorutil.feedback.Feedback
 import dev.popcat19.thorutil.feedback.FeedbackType
+import dev.popcat19.thorutil.recents.RecentsOverlay
 
 // Shell-side actions. screen_focus_lock steers gamepad keys only (Odin Settings maps it
 // to persist.sys.input.dispaly for inputflinger). Touch never moves pad focus, but the
@@ -83,6 +84,7 @@ object AynActions {
             appliedFocusLock = null
         }
         Log.i(TAG, "screen lock -> ${name(d)} (saved $FOCUS_LOCK=$cur)")
+        if (RecentsOverlay.isOpen()) RecentsOverlay.dismiss()
         Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "Locked: ${name(d)}", true, d)
     }
 
@@ -105,6 +107,7 @@ object AynActions {
             }
         }
         Log.i(TAG, "screen lock -> off (was ${name(prev)})")
+        if (RecentsOverlay.isOpen()) RecentsOverlay.refreshIfOpen(ctx)
         if (notify) Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "Screen unlocked", false, prev)
     }
 
@@ -113,6 +116,7 @@ object AynActions {
     }
 
     fun back(ctx: Context) {
+        if (RecentsOverlay.isOpen()) RecentsOverlay.dismiss()
         val d = lockedDisplay?.let(::other) ?: targetDisplay(ctx)
         Log.i(TAG, "back -> $d")
         Priv.sh("input -d $d keyevent BACK")
@@ -157,15 +161,23 @@ object AynActions {
                 }
             }
             AynAction.RECENTS_TOGGLE -> {
-                // Recents task keeps visible=true after closing; trust focus on the top display instead.
-                val visible = recentsShown()
-                if (visible) {
-                    // Back from recents lands on home; reopen the app that was on top instead.
-                    if (!resume(TOP)) Priv.sh("input keyevent BACK")
-                    Feedback.show(ctx, FeedbackType.RECENTS, "Recents hidden", true, TOP)
+                if (Prefs.recentsOverlay(ctx)) {
+                    val wasOpen = RecentsOverlay.isOpen()
+                    RecentsOverlay.toggle(ctx)
+                    if (wasOpen && Feedback.hapticOn(ctx, FeedbackType.RECENTS)) {
+                        Feedback.buzz(ctx, Feedback.hapticFor(ctx, false))
+                    }
                 } else {
-                    Priv.sh("input keyevent APP_SWITCH")
-                    Feedback.show(ctx, FeedbackType.RECENTS, "Recents", true, TOP)
+                    // Recents task keeps visible=true after closing; trust focus on the top display instead.
+                    val visible = recentsShown()
+                    if (visible) {
+                        // Back from recents lands on home; reopen the app that was on top instead.
+                        if (!resume(TOP)) Priv.sh("input keyevent BACK")
+                        Feedback.show(ctx, FeedbackType.RECENTS, "Recents hidden", true, TOP)
+                    } else {
+                        Priv.sh("input keyevent APP_SWITCH")
+                        Feedback.show(ctx, FeedbackType.RECENTS, "Recents", true, TOP)
+                    }
                 }
             }
             AynAction.SCREEN_LOCK -> toggleScreenLock(ctx)
@@ -181,6 +193,7 @@ object AynActions {
     // CLOSE_SYSTEM_DIALOGS(homekey) (which dismisses BDSA). When aynHomeSkipBdsa is enabled and
     // BDSA/DSA holds focus on display 4, lone Home routes to top instead of clearing the overlay.
     fun home(ctx: Context, display: Int?, respectLock: Boolean = true) {
+        if (RecentsOverlay.isOpen()) RecentsOverlay.dismiss()
         val locked = if (respectLock) lockedDisplay else null
         if (display != null && display == locked) {
             Log.i(TAG, "home blocked on locked display $display")

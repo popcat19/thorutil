@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityEvent
 import dev.popcat19.thorutil.Bg
 import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.feedback.Feedback
+import dev.popcat19.thorutil.recents.RecentsOverlay
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -31,6 +32,7 @@ class AynKeyService : AccessibilityService() {
     private var backHeld = false
     private var backCombo = false
     private var backTapPending = false
+    private var backSwallowedByRecents = false
     private val swallowed = HashSet<Int>()
     private val pendingBrightness = AtomicInteger(0)
     private val brightnessBusy = AtomicBoolean(false)
@@ -131,6 +133,7 @@ class AynKeyService : AccessibilityService() {
             val app = applicationContext
             Bg.post { AynActions.unlock(app, notify = false) }
         }
+        RecentsOverlay.dismiss()
         if (Feedback.a11y === this) Feedback.a11y = null
         thread.quitSafely()
         super.onDestroy()
@@ -178,6 +181,20 @@ class AynKeyService : AccessibilityService() {
             return true
         }
         if (isPadBack(e)) {
+            if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && RecentsOverlay.isOpen()) {
+                backSwallowedByRecents = true
+                backHeld = false
+                backCombo = true
+                main.removeCallbacks(backSingleRun)
+                main.removeCallbacks(backHoldRun)
+                backTapPending = false
+                RecentsOverlay.dismiss()
+                return true
+            }
+            if (backSwallowedByRecents) {
+                if (e.action == KeyEvent.ACTION_UP) backSwallowedByRecents = false
+                return true
+            }
             val gest = Prefs.aynBackGestures(applicationContext)
             when (e.action) {
                 KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) {
@@ -214,6 +231,13 @@ class AynKeyService : AccessibilityService() {
         }
 
         val code = e.keyCode
+        if (!held && !homeHeld && !backHeld && RecentsOverlay.isOpen()) {
+            if (RecentsOverlay.onKeyEvent(applicationContext, e)) {
+                if (e.action == KeyEvent.ACTION_DOWN) swallowed.add(code)
+                else if (e.action == KeyEvent.ACTION_UP) swallowed.remove(code)
+                return true
+            }
+        }
         if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && homeHeld) {
             val d = AynBinds.HOME[code] ?: return false
             main.removeCallbacks(homeSingleRun)

@@ -22,6 +22,7 @@ import android.util.Log
 import android.view.Display
 import dev.popcat19.thorutil.feedback.Feedback
 import dev.popcat19.thorutil.feedback.FeedbackType
+import dev.popcat19.thorutil.recents.RecentsOverlay
 
 // Long-lived helper. Pin: BetterDSA and the stock dual-screen assistant reset ime_fixed
 // around screen off/on and at boot, so re-apply it (and rebind stale WMS IME targets).
@@ -67,6 +68,7 @@ class KeeperService : Service() {
         if (hadPrev && Prefs.imeRebindFix(this)) {
             scheduleImeRebind(600, 1500)
         }
+        if (hadPrev) RecentsOverlay.onDisplayChanged()
         PipFix.nudge(300)
     }
 
@@ -168,6 +170,7 @@ class KeeperService : Service() {
             if (Prefs.fanManaged(this@KeeperService)) handler.post { FanDaemon.setScreenOff(off) }
             if (Prefs.perfAdaptive(this@KeeperService)) handler.post { PerfDaemon.setScreenOff(off) }
             if (off) hint?.stop() else syncHint()
+            if (off) RecentsOverlay.dismiss()
             PipFix.sync(this@KeeperService, handler, !off)
             // The assistants write their reset shortly after these broadcasts; deduplicate bursts.
             scheduleScreenEnforce()

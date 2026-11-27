@@ -58,7 +58,7 @@
 ## v0.5.0
 
 - [ ] Check for existing community app first.
-- [ ] `feat(app): add per-screen recents overlay`
+- [x] `feat(app): add per-screen recents overlay`
   - Gamepad list on focused display: open, lock, app info, clear all, move screen.
   - Deferred: split screen, floating.
 - [ ] `chore: bump version to 0.5.0`

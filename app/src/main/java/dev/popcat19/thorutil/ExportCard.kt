@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.popcat19.thorutil.ayn.AynActions
+import dev.popcat19.thorutil.recents.RecentsOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,6 +63,7 @@ fun ExportCard(onImported: () -> Unit = {}) {
                         PerfDaemon.stop(ctx)
                     }
                     if (!Prefs.aynScreenLock(ctx)) AynActions.unlock(ctx, notify = false)
+                    if (!Prefs.recentsOverlay(ctx)) RecentsOverlay.dismiss()
                     n
                 }
             }
