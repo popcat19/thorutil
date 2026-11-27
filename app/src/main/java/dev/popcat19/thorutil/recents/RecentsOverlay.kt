@@ -115,7 +115,6 @@ object RecentsOverlay {
     }
 
     fun open(ctx: Context, display: Int? = null) {
-        traceCaller("open display=$display")
         val app = ctx.applicationContext
         lastAppCtx = app
         val seq = sessionSeq.incrementAndGet()
@@ -147,11 +146,6 @@ object RecentsOverlay {
         }
     }
 
-    private fun traceCaller(what: String) {
-        val trace = Log.getStackTraceString(Throwable(what)).replace("'", " ").replace("\"", " ").replace("$", "_").replace("`", " ")
-        Bg.post { dev.popcat19.thorutil.Priv.sh("printf '%s\\n' '$trace' >> /data/local/tmp/thorutil-recents.log; chmod 666 /data/local/tmp/thorutil-recents.log") }
-    }
-
     // Outside-tap dismiss: only a real touchscreen tap that starts and ends outside the panel,
     // after a grace period, so stray pointer/injected events from the open gesture never close it.
     private const val OUTSIDE_TAP_GRACE_MS = 450L
@@ -159,7 +153,6 @@ object RecentsOverlay {
     private var outsideDownValid = false
 
     fun dismiss(releaseInput: Boolean = true) {
-        if (openFlag) traceCaller("dismiss releaseInput=$releaseInput")
         sessionSeq.incrementAndGet()
         openFlag = false
         val app = lastAppCtx
@@ -495,7 +488,6 @@ object RecentsOverlay {
                         outsideDownValid = !inPanel &&
                             event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN) &&
                             age >= OUTSIDE_TAP_GRACE_MS
-                        traceCaller("scrim down src=0x${Integer.toHexString(event.source)} dev=${event.deviceId} tool=${event.getToolType(0)} age=$age inPanel=$inPanel valid=$outsideDownValid")
                     }
                     MotionEvent.ACTION_UP -> {
                         if (outsideDownValid && !inPanel) {
