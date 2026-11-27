@@ -282,7 +282,9 @@ class KeeperService : Service() {
     private fun syncLock(why: String) {
         val locked = Prefs.lockSuspend(this) && (why == Intent.ACTION_SCREEN_OFF ||
             (why != Intent.ACTION_USER_PRESENT && getSystemService(KeyguardManager::class.java).isKeyguardLocked))
-        if (Daemon.setSuspended(locked)) Log.i(TAG, "$why: mouse ${if (locked) "suspended" else "resumed"}")
+        if (Daemon.setSuspended(Daemon.SuspendReason.KEYGUARD, locked)) {
+            Log.i(TAG, "$why: mouse ${if (locked) "suspended" else "resumed"}")
+        }
     }
 
     private fun notification(): Notification {

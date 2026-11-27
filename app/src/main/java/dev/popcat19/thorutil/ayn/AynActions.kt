@@ -73,6 +73,7 @@ object AynActions {
             ?.takeIf { it == "0" || it == "1" || it == "2" } ?: "0"
 
     fun acquireFocusLockOverride(ctx: Context, display: Int) = synchronized(screenLockMutex) {
+        Daemon.setSuspended(Daemon.SuspendReason.RECENTS, true)
         val want = if (display == BOTTOM) "2" else "1"
         val cur = odinFocusLockRaw(ctx)
         if (!focusOverrideActive) {
@@ -91,6 +92,7 @@ object AynActions {
     }
 
     private fun releaseFocusLockOverrideLocked(ctx: Context) {
+        Daemon.setSuspended(Daemon.SuspendReason.RECENTS, false)
         if (!focusOverrideActive) return
         val restore = preOverrideFocusLock
         val applied = appliedFocusOverride
@@ -108,15 +110,17 @@ object AynActions {
 
     private fun dismissRecentsForAction(ctx: Context) {
         if (RecentsOverlay.isOpen()) {
-            RecentsOverlay.dismiss(releaseFocus = false)
+            RecentsOverlay.dismiss(releaseInput = false)
             releaseFocusLockOverride(ctx)
+            Daemon.setSuspended(Daemon.SuspendReason.RECENTS, false)
         }
     }
 
     fun toggleScreenLock(ctx: Context) = synchronized(screenLockMutex) {
         if (RecentsOverlay.isOpen()) {
-            RecentsOverlay.dismiss(releaseFocus = false)
+            RecentsOverlay.dismiss(releaseInput = false)
             releaseFocusLockOverrideLocked(ctx)
+            Daemon.setSuspended(Daemon.SuspendReason.RECENTS, false)
         }
         if (lockedDisplay != null) {
             unlockLocked(ctx, notify = true)
@@ -141,8 +145,9 @@ object AynActions {
 
     fun unlock(ctx: Context, notify: Boolean = false) = synchronized(screenLockMutex) {
         if (RecentsOverlay.isOpen()) {
-            RecentsOverlay.dismiss(releaseFocus = false)
+            RecentsOverlay.dismiss(releaseInput = false)
             releaseFocusLockOverrideLocked(ctx)
+            Daemon.setSuspended(Daemon.SuspendReason.RECENTS, false)
         }
         unlockLocked(ctx, notify)
     }
@@ -240,7 +245,10 @@ object AynActions {
                 }
             }
             AynAction.SCREEN_LOCK -> toggleScreenLock(ctx)
-            AynAction.MOUSE -> Daemon.toggle()
+            AynAction.MOUSE -> {
+                dismissRecentsForAction(ctx)
+                Daemon.toggle()
+            }
             AynAction.BRIGHTNESS_UP, AynAction.BRIGHTNESS_DOWN -> {
                 stepBrightness(ctx, if (a == AynAction.BRIGHTNESS_UP) 1 else -1)
             }

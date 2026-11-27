@@ -188,7 +188,7 @@ class AynKeyService : AccessibilityService() {
                 main.removeCallbacks(backSingleRun)
                 main.removeCallbacks(backHoldRun)
                 backTapPending = false
-                RecentsOverlay.dismiss()
+                RecentsOverlay.onBack(applicationContext)
                 return true
             }
             if (backSwallowedByRecents) {
@@ -274,6 +274,7 @@ class AynKeyService : AccessibilityService() {
             if (e.action == KeyEvent.ACTION_UP) {
                 swallowed.remove(code)
                 if (code == repeatCode) stopRepeat()
+                RecentsOverlay.onKeyUp(code)
             }
             return true
         }

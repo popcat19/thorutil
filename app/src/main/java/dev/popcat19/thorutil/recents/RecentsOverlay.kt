@@ -74,7 +74,7 @@ object RecentsOverlay {
     private var listContainer: LinearLayout? = null
     private var tabViews: Map<RecentsTab, TextView> = emptyMap()
     private var clearBtn: TextView? = null
-    private var footerView: TextView? = null
+    private var footerView: PromptFlowLayout? = null
     private var rowViews: List<View> = emptyList()
 
     private var overlayDisplay = AynActions.TOP
@@ -146,7 +146,7 @@ object RecentsOverlay {
         }
     }
 
-    fun dismiss(releaseFocus: Boolean = true) {
+    fun dismiss(releaseInput: Boolean = true) {
         sessionSeq.incrementAndGet()
         openFlag = false
         val app = lastAppCtx
@@ -155,7 +155,7 @@ object RecentsOverlay {
         } else {
             main.post { removeOnMain() }
         }
-        if (releaseFocus && app != null) {
+        if (releaseInput && app != null) {
             Bg.post { AynActions.releaseFocusLockOverride(app) }
         }
     }
@@ -179,6 +179,17 @@ object RecentsOverlay {
 
     fun onDisplayChanged() {
         if (openFlag) dismiss()
+    }
+
+    fun onBack(ctx: Context) {
+        if (!openFlag) return
+        if (Looper.myLooper() == Looper.getMainLooper()) dismiss() else main.post { dismiss() }
+    }
+
+    fun onKeyUp(code: Int) {
+        main.post {
+            if (code == keyRepeatCode) stopKeyRepeat()
+        }
     }
 
     fun onKeyEvent(ctx: Context, e: KeyEvent): Boolean {
@@ -606,12 +617,8 @@ object RecentsOverlay {
         }
         panel.addView(scroller)
 
-        val footer = TextView(wctx).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setTextColor(0x99FFFFFF.toInt())
-            gravity = Gravity.CENTER
-            setPadding(dp(4), dp(8), dp(4), 0)
-            noFocus()
+        val footer = PromptFlowLayout(wctx, dp(12), dp(6)).apply {
+            setPadding(dp(4), dp(10), dp(4), 0)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -710,6 +717,7 @@ object RecentsOverlay {
         if (next == selectedIndex) return
         selectedIndex = next
         updateRowSelectionStyles()
+        updateHeaderAndFooter()
         scrollToSelected(instant = instantScroll)
     }
 
@@ -959,14 +967,38 @@ object RecentsOverlay {
         }
 
         footerView?.let { fv ->
-            if (clearConfirmPending) {
-                fv.text = "Press R2 / R3 again to clear unlocked apps in ${activeTab.label}"
-                fv.setTextColor(0xFFFCA5A5.toInt())
-            } else {
-                fv.text = "D-pad/Stick Move · L1/R1 Tab · A Open · X Close · Y Lock · Start Screen · Select Info · R2/R3 Clear · B Back"
-                fv.setTextColor(0x99FFFFFF.toInt())
-            }
+            fv.removeAllViews()
+            for (p in footerPrompts()) fv.addView(RecentsPrompts.buildPromptChip(fv.context, p))
         }
+    }
+
+    // Explicit per-selection prompts: every shortcut shows what it does to the highlighted app.
+    private fun footerPrompts(): List<ActionPrompt> {
+        val danger = 0xFFFCA5A5.toInt()
+        if (clearConfirmPending) {
+            return listOf(
+                ActionPrompt(PromptGlyph.R2R3, "Confirm clear ${clearableCount()} in ${activeTab.label}", accentColor = danger),
+                ActionPrompt(PromptGlyph.B, "Cancel"),
+            )
+        }
+        val sel = shownTasks.getOrNull(selectedIndex)
+        val lockedDisp = AynActions.lockedDisplay()
+        val out = ArrayList<ActionPrompt>(9)
+        if (shownTasks.size > 1) out.add(ActionPrompt(PromptGlyph.DPAD, "Select"))
+        out.add(ActionPrompt(PromptGlyph.L1R1, "Screen tab"))
+        if (sel != null) {
+            val onLocked = lockedDisp != null && sel.display == lockedDisp
+            val appLocked = sel.pkg in lockedPkgs
+            val target = if (sel.display == AynActions.BOTTOM) "top" else "bottom"
+            out.add(ActionPrompt(PromptGlyph.A, "Switch to", muted = onLocked))
+            out.add(ActionPrompt(PromptGlyph.X, "Close app", muted = onLocked || appLocked, accentColor = danger))
+            out.add(ActionPrompt(PromptGlyph.Y, if (appLocked) "Unlock app" else "Lock app"))
+            out.add(ActionPrompt(PromptGlyph.START, "Move to $target", muted = lockedDisp != null))
+            out.add(ActionPrompt(PromptGlyph.SELECT, "App info"))
+        }
+        out.add(ActionPrompt(PromptGlyph.R2R3, "Clear all", muted = clearableCount() == 0, accentColor = danger))
+        out.add(ActionPrompt(PromptGlyph.B, "Back"))
+        return out
     }
 
     private fun scrollToSelected(instant: Boolean) {

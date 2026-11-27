@@ -75,8 +75,18 @@ object Daemon {
         return true
     }
 
+    enum class SuspendReason { KEYGUARD, RECENTS }
+
+    private val suspendLock = Any()
+    private val suspendReasons = HashSet<SuspendReason>()
+
     // Returns true only when the suspend state actually changed.
-    fun setSuspended(on: Boolean): Boolean = proc.setSuspendFileIfChanged(on)
+    fun setSuspended(reason: SuspendReason, on: Boolean): Boolean = synchronized(suspendLock) {
+        if (on) suspendReasons.add(reason) else suspendReasons.remove(reason)
+        proc.setSuspendFileIfChanged(suspendReasons.isNotEmpty())
+    }
+
+    fun setSuspended(on: Boolean): Boolean = setSuspended(SuspendReason.KEYGUARD, on)
 
     fun restart(ctx: Context): Boolean = synchronized(proc.lock) {
         proc.kill()
