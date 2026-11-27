@@ -152,6 +152,12 @@ object RecentsOverlay {
         Bg.post { dev.popcat19.thorutil.Priv.sh("printf '%s\\n' '$trace' >> /data/local/tmp/thorutil-recents.log; chmod 666 /data/local/tmp/thorutil-recents.log") }
     }
 
+    // Outside-tap dismiss: only a real touchscreen tap that starts and ends outside the panel,
+    // after a grace period, so stray pointer/injected events from the open gesture never close it.
+    private const val OUTSIDE_TAP_GRACE_MS = 450L
+    private var shownAt = 0L
+    private var outsideDownValid = false
+
     fun dismiss(releaseInput: Boolean = true) {
         if (openFlag) traceCaller("dismiss releaseInput=$releaseInput")
         sessionSeq.incrementAndGet()
@@ -477,13 +483,37 @@ object RecentsOverlay {
                 if (onMotionEventOnMain(app, event)) return true
                 return super.dispatchGenericMotionEvent(event)
             }
+
+            override fun onTouchEvent(event: MotionEvent): Boolean {
+                val panelView = getChildAt(0)
+                val inPanel = panelView != null &&
+                    event.x >= panelView.left && event.x < panelView.right &&
+                    event.y >= panelView.top && event.y < panelView.bottom
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        val age = android.os.SystemClock.uptimeMillis() - shownAt
+                        outsideDownValid = !inPanel &&
+                            event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN) &&
+                            age >= OUTSIDE_TAP_GRACE_MS
+                        traceCaller("scrim down src=0x${Integer.toHexString(event.source)} dev=${event.deviceId} tool=${event.getToolType(0)} age=$age inPanel=$inPanel valid=$outsideDownValid")
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (outsideDownValid && !inPanel) {
+                            outsideDownValid = false
+                            dismiss()
+                        }
+                        outsideDownValid = false
+                    }
+                    MotionEvent.ACTION_CANCEL -> outsideDownValid = false
+                }
+                return true
+            }
         }.apply {
             setBackgroundColor(0xB3000000.toInt())
             descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-            isClickable = true
+            isClickable = false
             isFocusable = true
             isFocusableInTouchMode = true
-            setOnClickListener { dismiss() }
         }
 
         val panelW = min((dm.widthPixels * 0.92f).toInt(), dp(540))
@@ -654,6 +684,8 @@ object RecentsOverlay {
             manager.addView(scrim, lp)
             wm = manager
             rootView = scrim
+            shownAt = android.os.SystemClock.uptimeMillis()
+            outsideDownValid = false
             scrollView = scroller
             listContainer = listBox
             tabViews = builtTabs
