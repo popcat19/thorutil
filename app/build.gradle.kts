@@ -15,8 +15,8 @@ android {
         applicationId = "dev.popcat19.thorutil"
         minSdk = 33
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.4.9"
+        versionCode = 15
+        versionName = "0.4.10"
         ndk { abiFilters += "arm64-v8a" }
     }
 
