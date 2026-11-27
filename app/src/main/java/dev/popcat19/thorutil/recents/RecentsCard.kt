@@ -56,7 +56,7 @@ fun RecentsCard(epoch: Int, uiActive: Boolean = true) {
             Text("Per-screen recents", style = MaterialTheme.typography.titleMedium)
             SwitchRow(
                 title = "Custom recents overlay",
-                subtitle = "Replaces stock Recents with a gamepad and touch switcher on the active screen. Respects AYN + Y screen lock.",
+                subtitle = "Replaces stock Recents with a gamepad and touch switcher on the active screen. Respects AYN + Y screen lock. Mouse emu pauses while it is open so the pad reaches the overlay.",
                 checked = enabled,
             ) { on ->
                 enabled = on
