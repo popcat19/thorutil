@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.popcat19.thorutil.ayn.AynActions
+import dev.popcat19.thorutil.launcher.LauncherSwitch
 import dev.popcat19.thorutil.recents.RecentsOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -64,6 +65,7 @@ fun ExportCard(onImported: () -> Unit = {}) {
                     }
                     if (!Prefs.aynScreenLock(ctx)) AynActions.unlock(ctx, notify = false)
                     if (!Prefs.recentsOverlay(ctx)) RecentsOverlay.dismiss()
+                    LauncherSwitch.sync(ctx)
                     n
                 }
             }

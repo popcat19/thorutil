@@ -16,6 +16,7 @@ object Export {
         PERF("perf", "Adaptive Perf"),
         AYN("ayn", "AYN Combos"),
         RECENTS("recents", "Recents"),
+        LAUNCHER("launcher", "Home Screen"),
         AUTOLAUNCH("autolaunch", "Boot & Background Apps"),
     }
 
@@ -62,6 +63,7 @@ object Export {
         "ayn_screen_lock" to Section.AYN,
         "recents_overlay" to Section.RECENTS,
         "recents_locked_pkgs" to Section.RECENTS,
+        "launcher_home" to Section.LAUNCHER,
         "autolaunch_apps" to Section.AUTOLAUNCH,
     )
 

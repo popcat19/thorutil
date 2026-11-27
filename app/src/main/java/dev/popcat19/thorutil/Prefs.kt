@@ -50,6 +50,7 @@ object Prefs {
     private const val AYN_HOME_SKIP_BDSA = "ayn_home_skip_bdsa"
     private const val AYN_SCREEN_LOCK = "ayn_screen_lock"
     private const val RECENTS_OVERLAY = "recents_overlay"
+    private const val LAUNCHER_HOME = "launcher_home"
     private const val RECENTS_LOCKED_PKGS = "recents_locked_pkgs"
     private const val AUTOLAUNCH_APPS = "autolaunch_apps"
     private const val CHANGELOG_SEEN = "changelog_seen"
@@ -215,6 +216,9 @@ object Prefs {
 
     fun recentsOverlay(ctx: Context) = sp(ctx).getBoolean(RECENTS_OVERLAY, false)
     fun setRecentsOverlay(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(RECENTS_OVERLAY, v).apply()
+
+    fun launcherHome(ctx: Context) = sp(ctx).getBoolean(LAUNCHER_HOME, false)
+    fun setLauncherHome(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(LAUNCHER_HOME, v).apply()
 
     fun recentsLockedPackages(ctx: Context): Set<String> {
         val raw = sp(ctx).getString(RECENTS_LOCKED_PKGS, "") ?: ""

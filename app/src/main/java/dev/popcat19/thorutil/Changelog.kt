@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import dev.popcat19.thorutil.ayn.AynActions
 import dev.popcat19.thorutil.feedback.Feedback
+import dev.popcat19.thorutil.launcher.LauncherSwitch
 import dev.popcat19.thorutil.recents.RecentsOverlay
 import org.json.JSONObject
 
@@ -191,6 +192,18 @@ object Changelog {
             applyLegacy = { Prefs.setRecentsOverlay(it, false) },
         ),
         PrefChange(
+            id = "launcher_home",
+            revision = 1,
+            version = "0.5.0",
+            title = "Gamepad home screen",
+            summary = "Adds a ThorUtil home screen with clock, app search and a D-pad navigable app grid, one per display. Enabling makes it selectable in the system Home picker; pick it there to use it.",
+            legacyLabel = "Legacy: current launcher",
+            newLabel = "New: ThorUtil home available",
+            isNew = { Prefs.launcherHome(it) },
+            applyNew = { LauncherSwitch.set(it, true) },
+            applyLegacy = { LauncherSwitch.set(it, false) },
+        ),
+        PrefChange(
             id = "fan_zero_battery",
             revision = 1,
             version = "0.4.7",
@@ -293,6 +306,7 @@ object Changelog {
                 RecentsOverlay.dismiss()
             }
             if (!Prefs.aynScreenLock(app)) AynActions.unlock(app, notify = false)
+            LauncherSwitch.sync(app)
             KeeperService.sync(app)
         }
     }
