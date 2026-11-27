@@ -27,6 +27,7 @@ object RecentsTasks {
 
     private val HEAD = Regex("""^RootTask id=(\d+) .*displayId=(\d+)""")
     private val CHILD = Regex("""^\s+taskId=(\d+): (\S+/\S+) """)
+    private val ACT_STANDARD = Regex("""\bmActivityType=standard\b""")
 
     private data class AppMeta(val label: String, val icon: Drawable?)
 
@@ -71,7 +72,7 @@ object RecentsTasks {
                 return@let
             }
             if (line.contains("mActivityType=")) {
-                standard = line.contains("mActivityType=standard ") && !line.contains("mWindowingMode=pinned")
+                standard = ACT_STANDARD.containsMatchIn(line) && !line.contains("mWindowingMode=pinned")
                 continue
             }
             if (!standard || root < 0) continue

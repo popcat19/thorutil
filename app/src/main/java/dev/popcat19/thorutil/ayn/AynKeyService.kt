@@ -129,11 +129,11 @@ class AynKeyService : AccessibilityService() {
         main.removeCallbacks(backHoldRun)
         stopRepeat()
         pendingBrightness.set(0)
+        RecentsOverlay.dismiss()
         if (AynActions.lockedDisplay() != null) {
             val app = applicationContext
             Bg.post { AynActions.unlock(app, notify = false) }
         }
-        RecentsOverlay.dismiss()
         if (Feedback.a11y === this) Feedback.a11y = null
         thread.quitSafely()
         super.onDestroy()

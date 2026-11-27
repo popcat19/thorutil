@@ -13,8 +13,11 @@ import android.text.TextUtils
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -30,6 +33,8 @@ import dev.popcat19.thorutil.ayn.AynActions
 import dev.popcat19.thorutil.feedback.Feedback
 import dev.popcat19.thorutil.feedback.FeedbackType
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 enum class RecentsTab(val label: String) {
@@ -43,12 +48,23 @@ object RecentsOverlay {
     private const val REPEAT_DELAY_MS = 280L
     private const val REPEAT_MS = 90L
     private const val CLEAR_CONFIRM_MS = 2_500L
+    private const val HAT_THRESH = 0.5f
+    private const val STICK_ENTER = 0.55f
+    private const val STICK_EXIT = 0.30f
+    private const val TRIGGER_ENTER = 0.6f
+    private const val TRIGGER_EXIT = 0.3f
+
+    private enum class NavDir { NONE, UP, DOWN, LEFT, RIGHT }
 
     private val main = Handler(Looper.getMainLooper())
     private val sessionSeq = AtomicLong(0L)
+    private val mutateSeq = AtomicLong(0L)
 
     @Volatile
     private var openFlag = false
+
+    @Volatile
+    private var lastAppCtx: Context? = null
 
     // Main-thread only state.
     private var appCtx: Context? = null
@@ -68,8 +84,12 @@ object RecentsOverlay {
     private var selectedIndex = 0
     private var lockedPkgs: Set<String> = emptySet()
     private var clearConfirmPending = false
-    private var repeatKey = 0
-    private var repeatTask: Runnable? = null
+
+    private var keyRepeatCode = 0
+    private var keyRepeatTask: Runnable? = null
+    private var motionDir = NavDir.NONE
+    private var motionRepeatTask: Runnable? = null
+    private var r2AnalogDown = false
 
     private val clearConfirmTimeout = Runnable {
         if (clearConfirmPending) {
@@ -96,9 +116,11 @@ object RecentsOverlay {
 
     fun open(ctx: Context, display: Int? = null) {
         val app = ctx.applicationContext
+        lastAppCtx = app
         val seq = sessionSeq.incrementAndGet()
         openFlag = true
         Bg.post {
+            if (sessionSeq.get() != seq) return@post
             val locked = AynActions.lockedDisplay()
             val targetDisplay = when {
                 locked != null -> if (locked == AynActions.BOTTOM) AynActions.TOP else AynActions.BOTTOM
@@ -107,28 +129,47 @@ object RecentsOverlay {
             }
             val tasks = RecentsTasks.query(app)
             val pkgs = Prefs.recentsLockedPackages(app)
+            if (sessionSeq.get() != seq) return@post
+            // Redirect gamepad joystick/hat routing to the overlay's display while open.
+            AynActions.acquireFocusLockOverride(app, targetDisplay)
+            if (sessionSeq.get() != seq) {
+                AynActions.releaseFocusLockOverride(app)
+                return@post
+            }
             main.post {
-                if (sessionSeq.get() != seq) return@post
+                if (sessionSeq.get() != seq) {
+                    Bg.post { AynActions.releaseFocusLockOverride(app) }
+                    return@post
+                }
                 showOnMain(app, targetDisplay, tasks, pkgs)
             }
         }
     }
 
-    fun dismiss() {
+    fun dismiss(releaseFocus: Boolean = true) {
         sessionSeq.incrementAndGet()
         openFlag = false
-        main.post { removeOnMain() }
+        val app = lastAppCtx
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            removeOnMain()
+        } else {
+            main.post { removeOnMain() }
+        }
+        if (releaseFocus && app != null) {
+            Bg.post { AynActions.releaseFocusLockOverride(app) }
+        }
     }
 
     fun refreshIfOpen(ctx: Context) {
         if (!openFlag) return
         val app = ctx.applicationContext
         val seq = sessionSeq.get()
+        val mseq = mutateSeq.get()
         Bg.post {
             val tasks = RecentsTasks.query(app)
             val pkgs = Prefs.recentsLockedPackages(app)
             main.post {
-                if (!openFlag || sessionSeq.get() != seq) return@post
+                if (!openFlag || sessionSeq.get() != seq || mutateSeq.get() != mseq) return@post
                 allTasks = tasks
                 lockedPkgs = pkgs
                 rebuildList(keepSelection = true)
@@ -144,19 +185,101 @@ object RecentsOverlay {
         if (!openFlag) return false
         val code = e.keyCode
         if (!isHandledKey(code)) return false
-        if (e.action == KeyEvent.ACTION_UP) {
-            if (code == repeatKey) stopRepeat()
-            return true
-        }
-        if (e.action != KeyEvent.ACTION_DOWN) return true
-        if (e.repeatCount > 0) return true
-
         val app = ctx.applicationContext
-        main.post {
-            if (!openFlag) return@post
-            handleKeyDownOnMain(app, code)
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            handleKeyEventOnMain(app, code, e.action, e.repeatCount)
+        } else {
+            val action = e.action
+            val repeat = e.repeatCount
+            main.post { handleKeyEventOnMain(app, code, action, repeat) }
         }
         return true
+    }
+
+    private fun handleKeyEventOnMain(ctx: Context, code: Int, action: Int, repeatCount: Int) {
+        if (action == KeyEvent.ACTION_UP) {
+            if (code == keyRepeatCode) stopKeyRepeat()
+            return
+        }
+        if (!openFlag || action != KeyEvent.ACTION_DOWN || repeatCount > 0) return
+        handleKeyDownOnMain(ctx, code)
+    }
+
+    private fun onMotionEventOnMain(ctx: Context, e: MotionEvent): Boolean {
+        if (!openFlag) return false
+        if ((e.source and InputDevice.SOURCE_CLASS_JOYSTICK) == 0) return false
+        if (e.action != MotionEvent.ACTION_MOVE) return true
+
+        val hatX = e.getAxisValue(MotionEvent.AXIS_HAT_X)
+        val hatY = e.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        val stickX = e.getAxisValue(MotionEvent.AXIS_X)
+        val stickY = e.getAxisValue(MotionEvent.AXIS_Y)
+
+        val newDir = resolveNavDir(hatX, hatY, stickX, stickY, motionDir)
+        if (newDir != motionDir) {
+            stopMotionRepeat()
+            motionDir = newDir
+            if (newDir != NavDir.NONE) cancelClearConfirm()
+            when (newDir) {
+                NavDir.UP -> {
+                    moveSelection(-1, wrap = true, instantScroll = false)
+                    startMotionRepeat(NavDir.UP, -1)
+                }
+                NavDir.DOWN -> {
+                    moveSelection(1, wrap = true, instantScroll = false)
+                    startMotionRepeat(NavDir.DOWN, 1)
+                }
+                NavDir.LEFT -> stepTab(-1)
+                NavDir.RIGHT -> stepTab(1)
+                NavDir.NONE -> Unit
+            }
+        }
+
+        // Xbox mode maps R2 to AXIS_RTRIGGER; Odin mode may also emit AXIS_GAS.
+        val r2 = max(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS))
+        if (!r2AnalogDown && r2 >= TRIGGER_ENTER) {
+            r2AnalogDown = true
+            handleClearShortcutOnMain(ctx)
+        } else if (r2AnalogDown && r2 < TRIGGER_EXIT) {
+            r2AnalogDown = false
+        }
+
+        return true
+    }
+
+    private fun resolveNavDir(
+        hatX: Float,
+        hatY: Float,
+        stickX: Float,
+        stickY: Float,
+        prev: NavDir,
+    ): NavDir {
+        // Hat (D-pad) has crisp -1/0/+1 values and takes priority over left stick.
+        if (abs(hatY) >= HAT_THRESH || abs(hatX) >= HAT_THRESH) {
+            return if (abs(hatY) >= abs(hatX)) {
+                if (hatY < 0f) NavDir.UP else NavDir.DOWN
+            } else {
+                if (hatX < 0f) NavDir.LEFT else NavDir.RIGHT
+            }
+        }
+        val ax = abs(stickX)
+        val ay = abs(stickY)
+        val enter = STICK_ENTER
+        val exit = STICK_EXIT
+        // Hold current stick direction until it drops below exit threshold (prevents hall-stick bounce).
+        when (prev) {
+            NavDir.UP -> if (stickY <= -exit && ay >= ax * 0.7f) return NavDir.UP
+            NavDir.DOWN -> if (stickY >= exit && ay >= ax * 0.7f) return NavDir.DOWN
+            NavDir.LEFT -> if (stickX <= -exit && ax >= ay * 0.7f) return NavDir.LEFT
+            NavDir.RIGHT -> if (stickX >= exit && ax >= ay * 0.7f) return NavDir.RIGHT
+            NavDir.NONE -> Unit
+        }
+        if (ay < enter && ax < enter) return NavDir.NONE
+        return if (ay >= ax) {
+            if (stickY < 0f) NavDir.UP else NavDir.DOWN
+        } else {
+            if (stickX < 0f) NavDir.LEFT else NavDir.RIGHT
+        }
     }
 
     private fun isHandledKey(code: Int): Boolean = when (code) {
@@ -187,12 +310,12 @@ object RecentsOverlay {
         }
         when (code) {
             KeyEvent.KEYCODE_DPAD_UP -> {
-                moveSelection(-1, wrap = true)
-                startRepeat(code, -1)
+                moveSelection(-1, wrap = true, instantScroll = false)
+                startKeyRepeat(code, -1)
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                moveSelection(1, wrap = true)
-                startRepeat(code, 1)
+                moveSelection(1, wrap = true, instantScroll = false)
+                startKeyRepeat(code, 1)
             }
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_BUTTON_L1 -> stepTab(-1)
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_BUTTON_R1 -> stepTab(1)
@@ -211,42 +334,62 @@ object RecentsOverlay {
             KeyEvent.KEYCODE_BUTTON_SELECT -> {
                 shownTasks.getOrNull(selectedIndex)?.let { triggerAppInfo(ctx, it) }
             }
-            KeyEvent.KEYCODE_BUTTON_R2, KeyEvent.KEYCODE_BUTTON_THUMBR -> {
-                if (clearConfirmPending) {
-                    cancelClearConfirm()
-                    triggerClearAll(ctx)
-                } else if (clearableCount() > 0) {
-                    clearConfirmPending = true
-                    main.removeCallbacks(clearConfirmTimeout)
-                    main.postDelayed(clearConfirmTimeout, CLEAR_CONFIRM_MS)
-                    buzz(ctx, false)
-                    updateHeaderAndFooter()
-                } else {
-                    Feedback.show(ctx, FeedbackType.RECENTS, "Nothing to clear", false, overlayDisplay)
-                }
-            }
+            KeyEvent.KEYCODE_BUTTON_R2, KeyEvent.KEYCODE_BUTTON_THUMBR -> handleClearShortcutOnMain(ctx)
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> dismiss()
         }
     }
 
-    private fun startRepeat(code: Int, delta: Int) {
-        stopRepeat()
-        repeatKey = code
+    private fun handleClearShortcutOnMain(ctx: Context) {
+        if (clearConfirmPending) {
+            cancelClearConfirm()
+            triggerClearAll(ctx)
+        } else if (clearableCount() > 0) {
+            clearConfirmPending = true
+            main.removeCallbacks(clearConfirmTimeout)
+            main.postDelayed(clearConfirmTimeout, CLEAR_CONFIRM_MS)
+            buzz(ctx, false)
+            updateHeaderAndFooter()
+        } else {
+            Feedback.show(ctx, FeedbackType.RECENTS, "Nothing to clear", false, overlayDisplay)
+        }
+    }
+
+    private fun startKeyRepeat(code: Int, delta: Int) {
+        stopKeyRepeat()
+        keyRepeatCode = code
         val r = object : Runnable {
             override fun run() {
-                if (!openFlag || repeatKey != code) return stopRepeat()
-                moveSelection(delta, wrap = false)
+                if (!openFlag || keyRepeatCode != code) return stopKeyRepeat()
+                moveSelection(delta, wrap = false, instantScroll = true)
                 main.postDelayed(this, REPEAT_MS)
             }
         }
-        repeatTask = r
+        keyRepeatTask = r
         main.postDelayed(r, REPEAT_DELAY_MS)
     }
 
-    private fun stopRepeat() {
-        repeatTask?.let { main.removeCallbacks(it) }
-        repeatTask = null
-        repeatKey = 0
+    private fun stopKeyRepeat() {
+        keyRepeatTask?.let { main.removeCallbacks(it) }
+        keyRepeatTask = null
+        keyRepeatCode = 0
+    }
+
+    private fun startMotionRepeat(dir: NavDir, delta: Int) {
+        stopMotionRepeat()
+        val r = object : Runnable {
+            override fun run() {
+                if (!openFlag || motionDir != dir) return stopMotionRepeat()
+                moveSelection(delta, wrap = false, instantScroll = true)
+                main.postDelayed(this, REPEAT_MS)
+            }
+        }
+        motionRepeatTask = r
+        main.postDelayed(r, REPEAT_DELAY_MS)
+    }
+
+    private fun stopMotionRepeat() {
+        motionRepeatTask?.let { main.removeCallbacks(it) }
+        motionRepeatTask = null
     }
 
     private fun cancelClearConfirm() {
@@ -254,6 +397,11 @@ object RecentsOverlay {
         clearConfirmPending = false
         main.removeCallbacks(clearConfirmTimeout)
         updateHeaderAndFooter()
+    }
+
+    private fun View.noFocus() {
+        isFocusable = false
+        isFocusableInTouchMode = false
     }
 
     private fun showOnMain(
@@ -268,6 +416,7 @@ object RecentsOverlay {
         val base = a11y ?: app.takeIf { Rotation.canOverlay(it) }
         if (base == null) {
             openFlag = false
+            Bg.post { AynActions.releaseFocusLockOverride(app) }
             Log.w(TAG, "cannot show recents overlay: neither a11y service nor overlay permission")
             return
         }
@@ -279,6 +428,7 @@ object RecentsOverlay {
         val d = app.getSystemService(DisplayManager::class.java).getDisplay(displayId)
         if (d == null) {
             openFlag = false
+            Bg.post { AynActions.releaseFocusLockOverride(app) }
             return
         }
         val wctx = base.createDisplayContext(d).createWindowContext(type, null)
@@ -292,24 +442,38 @@ object RecentsOverlay {
         lockedPkgs = pkgs
         selectedIndex = 0
         clearConfirmPending = false
+        motionDir = NavDir.NONE
+        r2AnalogDown = false
 
-        val scrim = FrameLayout(wctx).apply {
-            setBackgroundColor(0xB3000000.toInt())
-            isClickable = true
-            isFocusable = a11y == null
-            isFocusableInTouchMode = a11y == null
-            setOnClickListener { dismiss() }
-            if (a11y == null) {
-                setOnKeyListener { _, _, event -> onKeyEvent(app, event) }
+        // Focusable root container so joystick/hat MotionEvents (D-pad & left stick on Thor)
+        // reach dispatchGenericMotionEvent without leaking to background apps or child views.
+        val scrim = object : FrameLayout(wctx) {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (onKeyEvent(app, event)) return true
+                return super.dispatchKeyEvent(event)
             }
+
+            override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                if (onMotionEventOnMain(app, event)) return true
+                return super.dispatchGenericMotionEvent(event)
+            }
+        }.apply {
+            setBackgroundColor(0xB3000000.toInt())
+            descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            isClickable = true
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setOnClickListener { dismiss() }
         }
 
         val panelW = min((dm.widthPixels * 0.92f).toInt(), dp(540))
-        val maxListH = (min((dm.heightPixels * 0.86f).toInt(), dp(620)) - dp(124)).coerceAtLeast(dp(160))
+        val maxPanelH = (dm.heightPixels * 0.88f).toInt()
+        val maxListH = (min(maxPanelH, dp(640)) - dp(164)).coerceAtLeast(dp(140))
 
         val panel = LinearLayout(wctx).apply {
             orientation = LinearLayout.VERTICAL
             isClickable = true
+            noFocus()
             background = GradientDrawable().apply {
                 setColor(0xF2181A1F.toInt())
                 cornerRadius = dp(18).toFloat()
@@ -323,51 +487,33 @@ object RecentsOverlay {
             )
         }
 
-        // Header: tabs on left, Clear all + Close on right.
-        val header = LinearLayout(wctx).apply {
+        // Row 1: Title on left, Clear all + Close on right (never crowds tabs on narrow screens).
+        val titleRow = LinearLayout(wctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            noFocus()
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = dp(10) }
+            ).apply { bottomMargin = dp(8) }
         }
 
-        val tabsRow = LinearLayout(wctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val titleView = TextView(wctx).apply {
+            text = "Recents"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            noFocus()
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val builtTabs = LinkedHashMap<RecentsTab, TextView>()
-        for (tab in RecentsTab.entries) {
-            val tv = TextView(wctx).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(dp(10), dp(6), dp(10), dp(6))
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-                setOnClickListener {
-                    cancelClearConfirm()
-                    if (activeTab != tab) {
-                        activeTab = tab
-                        selectedIndex = 0
-                        rebuildList(keepSelection = false)
-                    }
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply { marginEnd = dp(6) }
-            }
-            builtTabs[tab] = tv
-            tabsRow.addView(tv)
-        }
-        header.addView(tabsRow)
+        titleRow.addView(titleView)
 
         val clearView = TextView(wctx).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(Color.WHITE)
             setPadding(dp(10), dp(6), dp(10), dp(6))
             maxLines = 1
+            noFocus()
             setOnClickListener {
                 cancelClearConfirm()
                 triggerClearAll(app)
@@ -375,9 +521,9 @@ object RecentsOverlay {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { marginEnd = dp(6) }
+            ).apply { marginEnd = dp(8) }
         }
-        header.addView(clearView)
+        titleRow.addView(clearView)
 
         val closeOverlayBtn = ImageButton(wctx).apply {
             setImageResource(R.drawable.ic_pip_close)
@@ -389,14 +535,53 @@ object RecentsOverlay {
             val p = dp(6)
             setPadding(p, p, p, p)
             contentDescription = "Close recents"
+            noFocus()
             setOnClickListener { dismiss() }
             layoutParams = LinearLayout.LayoutParams(dp(30), dp(30))
         }
-        header.addView(closeOverlayBtn)
-        panel.addView(header)
+        titleRow.addView(closeOverlayBtn)
+        panel.addView(titleRow)
+
+        // Row 2: Equal-width Top / Bottom / All tab pills.
+        val tabsRow = LinearLayout(wctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            noFocus()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(10) }
+        }
+        val builtTabs = LinkedHashMap<RecentsTab, TextView>()
+        val entries = RecentsTab.entries
+        entries.forEachIndexed { i, tab ->
+            val tv = TextView(wctx).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                gravity = Gravity.CENTER
+                setPadding(dp(8), dp(6), dp(8), dp(6))
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                noFocus()
+                setOnClickListener {
+                    cancelClearConfirm()
+                    if (activeTab != tab) {
+                        activeTab = tab
+                        selectedIndex = 0
+                        rebuildList(keepSelection = false)
+                    }
+                }
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (i < entries.lastIndex) marginEnd = dp(6)
+                }
+            }
+            builtTabs[tab] = tv
+            tabsRow.addView(tv)
+        }
+        panel.addView(tabsRow)
 
         val listBox = LinearLayout(wctx).apply {
             orientation = LinearLayout.VERTICAL
+            noFocus()
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -412,6 +597,7 @@ object RecentsOverlay {
         }.apply {
             isVerticalScrollBarEnabled = true
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            noFocus()
             addView(listBox)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -425,6 +611,7 @@ object RecentsOverlay {
             setTextColor(0x99FFFFFF.toInt())
             gravity = Gravity.CENTER
             setPadding(dp(4), dp(8), dp(4), 0)
+            noFocus()
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -434,18 +621,14 @@ object RecentsOverlay {
 
         scrim.addView(panel)
 
-        val flags = if (a11y != null) {
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        } else {
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        }
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             type,
-            flags,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             title = "ThorUtil recents"
         }
@@ -462,16 +645,20 @@ object RecentsOverlay {
             footerView = footer
             openFlag = true
             rebuildList(keepSelection = false)
-            if (a11y == null) scrim.requestFocus()
+            scrim.requestFocus()
             buzz(app, true)
         }.onFailure {
             openFlag = false
+            Bg.post { AynActions.releaseFocusLockOverride(app) }
             Log.w(TAG, "failed to add recents overlay", it)
         }
     }
 
     private fun removeOnMain() {
-        stopRepeat()
+        stopKeyRepeat()
+        stopMotionRepeat()
+        motionDir = NavDir.NONE
+        r2AnalogDown = false
         main.removeCallbacks(clearConfirmTimeout)
         clearConfirmPending = false
         val v = rootView
@@ -512,7 +699,7 @@ object RecentsOverlay {
         rebuildList(keepSelection = false)
     }
 
-    private fun moveSelection(delta: Int, wrap: Boolean) {
+    private fun moveSelection(delta: Int, wrap: Boolean, instantScroll: Boolean) {
         val n = shownTasks.size
         if (n <= 1) return
         val next = if (wrap) {
@@ -523,7 +710,7 @@ object RecentsOverlay {
         if (next == selectedIndex) return
         selectedIndex = next
         updateRowSelectionStyles()
-        scrollToSelected()
+        scrollToSelected(instant = instantScroll)
     }
 
     private fun rebuildList(keepSelection: Boolean) {
@@ -556,6 +743,7 @@ object RecentsOverlay {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 setTextColor(0x99FFFFFF.toInt())
                 gravity = Gravity.CENTER
+                noFocus()
                 setPadding(dp(16), dp(28), dp(16), dp(28))
             }
             container.addView(empty)
@@ -570,6 +758,7 @@ object RecentsOverlay {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     minimumHeight = dp(56)
+                    noFocus()
                     setPadding(dp(10), dp(8), dp(8), dp(8))
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -591,6 +780,7 @@ object RecentsOverlay {
                         setImageResource(android.R.drawable.sym_def_app_icon)
                     }
                     scaleType = ImageView.ScaleType.FIT_CENTER
+                    noFocus()
                     layoutParams = LinearLayout.LayoutParams(dp(34), dp(34)).apply {
                         marginEnd = dp(10)
                     }
@@ -599,6 +789,7 @@ object RecentsOverlay {
 
                 val textCol = LinearLayout(wctx).apply {
                     orientation = LinearLayout.VERTICAL
+                    noFocus()
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                         marginEnd = dp(6)
                     }
@@ -606,9 +797,10 @@ object RecentsOverlay {
                 val titleTv = TextView(wctx).apply {
                     text = task.label
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                    setTextColor(0xFFFFFFFF.toInt())
+                    setTextColor(Color.WHITE)
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
+                    noFocus()
                 }
                 val metaParts = ArrayList<String>(4)
                 metaParts.add(if (task.display == AynActions.BOTTOM) "Bottom" else "Top")
@@ -626,6 +818,7 @@ object RecentsOverlay {
                     setTextColor(metaColor)
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
+                    noFocus()
                 }
                 textCol.addView(titleTv)
                 textCol.addView(subTv)
@@ -650,6 +843,7 @@ object RecentsOverlay {
                     setPadding(p, p, p, p)
                     alpha = alphaVal
                     contentDescription = desc
+                    noFocus()
                     layoutParams = LinearLayout.LayoutParams(dp(32), dp(32)).apply {
                         marginStart = dp(4)
                     }
@@ -703,7 +897,7 @@ object RecentsOverlay {
         rowViews = builtRows
         updateRowSelectionStyles()
         updateHeaderAndFooter()
-        scrollToSelected()
+        scrollToSelected(instant = true)
     }
 
     private fun updateRowSelectionStyles() {
@@ -756,7 +950,7 @@ object RecentsOverlay {
 
         clearBtn?.let { btn ->
             val canClear = clearableCount() > 0
-            btn.text = if (clearConfirmPending) "Confirm (R3)" else "Clear all"
+            btn.text = if (clearConfirmPending) "Confirm (R2/R3)" else "Clear all"
             btn.alpha = if (canClear || clearConfirmPending) 1f else 0.35f
             btn.background = GradientDrawable().apply {
                 setColor(if (clearConfirmPending) 0xCCDC2626.toInt() else 0x38EF4444)
@@ -766,16 +960,16 @@ object RecentsOverlay {
 
         footerView?.let { fv ->
             if (clearConfirmPending) {
-                fv.text = "Press R3 / R2 again to clear unlocked apps in ${activeTab.label}"
+                fv.text = "Press R2 / R3 again to clear unlocked apps in ${activeTab.label}"
                 fv.setTextColor(0xFFFCA5A5.toInt())
             } else {
-                fv.text = "A Open · X Close · Y Lock · Start Move · Select Info · L1/R1 Tab · R3 Clear · B Back"
+                fv.text = "D-pad/Stick Move · L1/R1 Tab · A Open · X Close · Y Lock · Start Screen · Select Info · R2/R3 Clear · B Back"
                 fv.setTextColor(0x99FFFFFF.toInt())
             }
         }
     }
 
-    private fun scrollToSelected() {
+    private fun scrollToSelected(instant: Boolean) {
         val scroller = scrollView ?: return
         val row = rowViews.getOrNull(selectedIndex) ?: return
         scroller.post {
@@ -784,11 +978,12 @@ object RecentsOverlay {
             val bottom = row.bottom
             val curTop = scroller.scrollY
             val curBottom = curTop + scroller.height
-            if (top - pad < curTop) {
-                scroller.smoothScrollTo(0, (top - pad).coerceAtLeast(0))
-            } else if (bottom + pad > curBottom) {
-                scroller.smoothScrollTo(0, (bottom + pad - scroller.height).coerceAtLeast(0))
+            val target = when {
+                top - pad < curTop -> (top - pad).coerceAtLeast(0)
+                bottom + pad > curBottom -> (bottom + pad - scroller.height).coerceAtLeast(0)
+                else -> return@post
             }
+            if (instant) scroller.scrollTo(0, target) else scroller.smoothScrollTo(0, target)
         }
     }
 
@@ -815,14 +1010,16 @@ object RecentsOverlay {
             return
         }
         val seq = sessionSeq.get()
+        val mseq = mutateSeq.incrementAndGet()
+        allTasks = allTasks.filterNot { it.rootId == task.rootId }
+        buzz(ctx, false)
+        rebuildList(keepSelection = true)
         Bg.post {
-            if (RecentsTasks.close(ctx, task)) {
-                buzz(ctx, false)
-            }
+            RecentsTasks.close(ctx, task)
             val updated = RecentsTasks.query(ctx)
             val pkgs = Prefs.recentsLockedPackages(ctx)
             main.post {
-                if (!openFlag || sessionSeq.get() != seq) return@post
+                if (!openFlag || sessionSeq.get() != seq || mutateSeq.get() != mseq) return@post
                 allTasks = updated
                 lockedPkgs = pkgs
                 rebuildList(keepSelection = true)
@@ -839,13 +1036,23 @@ object RecentsOverlay {
     }
 
     private fun triggerMove(ctx: Context, task: RecentsTask) {
+        val target = if (task.display == AynActions.BOTTOM) AynActions.TOP else AynActions.BOTTOM
+        val locked = AynActions.lockedDisplay()
+        if (locked != null && (target == locked || task.display == locked)) {
+            val name = if (locked == AynActions.BOTTOM) "Bottom" else "Top"
+            Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "$name locked", false, locked)
+            return
+        }
         val seq = sessionSeq.get()
+        val mseq = mutateSeq.incrementAndGet()
+        allTasks = allTasks.map { if (it.rootId == task.rootId) it.copy(display = target) else it }
+        rebuildList(keepSelection = true)
         Bg.post {
             RecentsTasks.move(ctx, task)
             val updated = RecentsTasks.query(ctx)
             val pkgs = Prefs.recentsLockedPackages(ctx)
             main.post {
-                if (!openFlag || sessionSeq.get() != seq) return@post
+                if (!openFlag || sessionSeq.get() != seq || mutateSeq.get() != mseq) return@post
                 allTasks = updated
                 lockedPkgs = pkgs
                 rebuildList(keepSelection = true)
@@ -863,6 +1070,15 @@ object RecentsOverlay {
         val targets = shownTasks.toList()
         if (targets.isEmpty()) return
         val seq = sessionSeq.get()
+        val mseq = mutateSeq.incrementAndGet()
+        val lockedDisp = AynActions.lockedDisplay()
+        val removedIds = targets
+            .filter { (lockedDisp == null || it.display != lockedDisp) && it.pkg !in lockedPkgs }
+            .mapTo(HashSet()) { it.rootId }
+        if (removedIds.isNotEmpty()) {
+            allTasks = allTasks.filterNot { it.rootId in removedIds }
+            rebuildList(keepSelection = true)
+        }
         Bg.post {
             val res = RecentsTasks.clearAll(ctx, targets)
             val msg = when {
@@ -876,7 +1092,7 @@ object RecentsOverlay {
             val updated = RecentsTasks.query(ctx)
             val pkgs = Prefs.recentsLockedPackages(ctx)
             main.post {
-                if (!openFlag || sessionSeq.get() != seq) return@post
+                if (!openFlag || sessionSeq.get() != seq || mutateSeq.get() != mseq) return@post
                 allTasks = updated
                 lockedPkgs = pkgs
                 rebuildList(keepSelection = true)

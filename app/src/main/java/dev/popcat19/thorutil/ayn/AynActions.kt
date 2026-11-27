@@ -24,6 +24,7 @@ object AynActions {
     const val BOTTOM = 4
     private const val FOCUS_LOCK = "screen_focus_lock"
     private const val TOUCH = "/data/local/tmp/thorutil-touch"
+    private val ACT_STANDARD = Regex("""\bmActivityType=standard\b""")
 
     @Volatile
     private var focusAt = 0L
@@ -46,6 +47,12 @@ object AynActions {
 
     private var appliedFocusLock: String? = null
 
+    // Temporary screen_focus_lock override while RecentsOverlay is open so Odin's
+    // InputDispatcher delivers joystick/hat MotionEvents to the overlay's display.
+    private var focusOverrideActive = false
+    private var preOverrideFocusLock: String? = null
+    private var appliedFocusOverride: String? = null
+
     private fun name(d: Int) = if (d == BOTTOM) "bottom" else "top"
 
     private fun titleName(d: Int) = if (d == BOTTOM) "Bottom" else "Top"
@@ -65,7 +72,52 @@ object AynActions {
         runCatching { Settings.System.getString(ctx.contentResolver, FOCUS_LOCK)?.trim() }.getOrNull()
             ?.takeIf { it == "0" || it == "1" || it == "2" } ?: "0"
 
+    fun acquireFocusLockOverride(ctx: Context, display: Int) = synchronized(screenLockMutex) {
+        val want = if (display == BOTTOM) "2" else "1"
+        val cur = odinFocusLockRaw(ctx)
+        if (!focusOverrideActive) {
+            focusOverrideActive = true
+            preOverrideFocusLock = cur
+        }
+        if (cur != want) {
+            appliedFocusOverride = want
+            Priv.sh("settings put system $FOCUS_LOCK $want")
+        }
+        Log.i(TAG, "recents focus override -> ${name(display)} (cur=$cur, saved=$preOverrideFocusLock)")
+    }
+
+    fun releaseFocusLockOverride(ctx: Context) = synchronized(screenLockMutex) {
+        releaseFocusLockOverrideLocked(ctx)
+    }
+
+    private fun releaseFocusLockOverrideLocked(ctx: Context) {
+        if (!focusOverrideActive) return
+        val restore = preOverrideFocusLock
+        val applied = appliedFocusOverride
+        focusOverrideActive = false
+        preOverrideFocusLock = null
+        appliedFocusOverride = null
+        if (applied != null && restore != null && restore != applied) {
+            val cur = odinFocusLockRaw(ctx)
+            if (cur == applied) {
+                Priv.sh("settings put system $FOCUS_LOCK $restore")
+            }
+        }
+        Log.i(TAG, "recents focus override released (restore=$restore)")
+    }
+
+    private fun dismissRecentsForAction(ctx: Context) {
+        if (RecentsOverlay.isOpen()) {
+            RecentsOverlay.dismiss(releaseFocus = false)
+            releaseFocusLockOverride(ctx)
+        }
+    }
+
     fun toggleScreenLock(ctx: Context) = synchronized(screenLockMutex) {
+        if (RecentsOverlay.isOpen()) {
+            RecentsOverlay.dismiss(releaseFocus = false)
+            releaseFocusLockOverrideLocked(ctx)
+        }
         if (lockedDisplay != null) {
             unlockLocked(ctx, notify = true)
             return@synchronized
@@ -84,11 +136,14 @@ object AynActions {
             appliedFocusLock = null
         }
         Log.i(TAG, "screen lock -> ${name(d)} (saved $FOCUS_LOCK=$cur)")
-        if (RecentsOverlay.isOpen()) RecentsOverlay.dismiss()
         Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "Locked: ${name(d)}", true, d)
     }
 
     fun unlock(ctx: Context, notify: Boolean = false) = synchronized(screenLockMutex) {
+        if (RecentsOverlay.isOpen()) {
+            RecentsOverlay.dismiss(releaseFocus = false)
+            releaseFocusLockOverrideLocked(ctx)
+        }
         unlockLocked(ctx, notify)
     }
 
@@ -107,7 +162,6 @@ object AynActions {
             }
         }
         Log.i(TAG, "screen lock -> off (was ${name(prev)})")
-        if (RecentsOverlay.isOpen()) RecentsOverlay.refreshIfOpen(ctx)
         if (notify) Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "Screen unlocked", false, prev)
     }
 
@@ -116,7 +170,7 @@ object AynActions {
     }
 
     fun back(ctx: Context) {
-        if (RecentsOverlay.isOpen()) RecentsOverlay.dismiss()
+        dismissRecentsForAction(ctx)
         val d = lockedDisplay?.let(::other) ?: targetDisplay(ctx)
         Log.i(TAG, "back -> $d")
         Priv.sh("input -d $d keyevent BACK")
@@ -134,19 +188,23 @@ object AynActions {
             AynAction.FOCUS_TOP -> focus(ctx, TOP)
             AynAction.FOCUS_BOTTOM -> focus(ctx, BOTTOM)
             AynAction.FOCUS_SWAP -> {
+                dismissRecentsForAction(ctx)
                 val movePad = Prefs.aynFocusMovesPad(ctx) && lockedDisplay == null
                 val cur = if (movePad) padDisplay(ctx) else if (pointerBottom) BOTTOM else TOP
                 focus(ctx, if (cur == BOTTOM) TOP else BOTTOM)
             }
             AynAction.SWAP_WINDOWS -> {
+                dismissRecentsForAction(ctx)
                 swapWindows()
                 Feedback.show(ctx, FeedbackType.WINDOWS, "Windows swapped", false, padDisplay(ctx))
             }
             AynAction.PREV_APP -> {
+                dismissRecentsForAction(ctx)
                 val d = lockedDisplay?.let(::other) ?: targetDisplay(ctx)
                 if (prevApp(d)) Feedback.show(ctx, FeedbackType.PREV_APP, "Previous app", d == TOP, d)
             }
             AynAction.PREV_APP_TOP -> {
+                dismissRecentsForAction(ctx)
                 if (lockedDisplay == TOP) {
                     Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "Top locked", false, TOP)
                 } else if (prevApp(TOP)) {
@@ -154,6 +212,7 @@ object AynActions {
                 }
             }
             AynAction.PREV_APP_BOTTOM -> {
+                dismissRecentsForAction(ctx)
                 if (lockedDisplay == BOTTOM) {
                     Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "Bottom locked", false, BOTTOM)
                 } else if (prevApp(BOTTOM)) {
@@ -193,7 +252,7 @@ object AynActions {
     // CLOSE_SYSTEM_DIALOGS(homekey) (which dismisses BDSA). When aynHomeSkipBdsa is enabled and
     // BDSA/DSA holds focus on display 4, lone Home routes to top instead of clearing the overlay.
     fun home(ctx: Context, display: Int?, respectLock: Boolean = true) {
-        if (RecentsOverlay.isOpen()) RecentsOverlay.dismiss()
+        dismissRecentsForAction(ctx)
         val locked = if (respectLock) lockedDisplay else null
         if (display != null && display == locked) {
             Log.i(TAG, "home blocked on locked display $display")
@@ -254,6 +313,7 @@ object AynActions {
     // Moves the mouse pointer; moves gamepad screen_focus_lock only when aynFocusMovesPad is on
     // and no screen lock is active.
     fun focus(ctx: Context, display: Int) {
+        dismissRecentsForAction(ctx)
         pointerBottom = display == BOTTOM
         val movePad = Prefs.aynFocusMovesPad(ctx) && lockedDisplay == null
         if (movePad) {
@@ -304,7 +364,7 @@ object AynActions {
                 return@let
             }
             if (line.contains("mActivityType=")) {
-                standard = line.contains("mActivityType=standard ") && !line.contains("mWindowingMode=pinned")
+                standard = ACT_STANDARD.containsMatchIn(line) && !line.contains("mWindowingMode=pinned")
             }
             val t = task.find(line) ?: continue
             if (standard && root >= 0 && res.none { it.rootId == root }) res.add(Task(root, display, t.groupValues[1]))

@@ -39,12 +39,14 @@ fun RecentsCard(epoch: Int, uiActive: Boolean = true) {
     var locked by remember(epoch) { mutableStateOf(Prefs.recentsLockedPackages(ctx).sorted()) }
     var overlay by remember { mutableStateOf(Rotation.canOverlay(ctx)) }
     var hasA11y by remember { mutableStateOf(Feedback.a11y != null) }
+    var homeDouble by remember(epoch) { mutableStateOf(Prefs.aynHomeDoubleRecents(ctx)) }
 
     LaunchedEffect(uiActive) {
         while (uiActive) {
             locked = Prefs.recentsLockedPackages(ctx).sorted()
             overlay = Rotation.canOverlay(ctx)
             hasA11y = Feedback.a11y != null
+            homeDouble = Prefs.aynHomeDoubleRecents(ctx)
             delay(1500)
         }
     }
@@ -92,9 +94,9 @@ fun RecentsCard(epoch: Int, uiActive: Boolean = true) {
             }
 
             if (enabled) {
-                val trigger = if (Prefs.aynHomeDoubleRecents(ctx)) "Home 2x" else "AYN + B"
+                val trigger = if (homeDouble) "Home 2x" else "AYN + B"
                 Text(
-                    "Trigger: $trigger. D-pad navigate, L1/R1 tabs (Top / Bottom / All), A open, X close, Y lock, Start move screen, Select app info, R3/R2 clear all (2x), B dismiss.",
+                    "Trigger: $trigger. D-pad / stick navigate, L1/R1 tabs (Top / Bottom / All), A open, X close, Y lock, Start move screen, Select app info, R2/R3 clear all (2x), B dismiss.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
