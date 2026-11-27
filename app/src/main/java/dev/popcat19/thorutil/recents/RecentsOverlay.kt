@@ -183,7 +183,8 @@ object RecentsOverlay {
 
     fun onBack(ctx: Context) {
         if (!openFlag) return
-        if (Looper.myLooper() == Looper.getMainLooper()) dismiss() else main.post { dismiss() }
+        val act = { if (clearConfirmPending) cancelClearConfirm() else dismiss() }
+        if (Looper.myLooper() == Looper.getMainLooper()) act() else main.post { act() }
     }
 
     fun onKeyUp(code: Int) {
@@ -316,6 +317,7 @@ object RecentsOverlay {
     }
 
     private fun handleKeyDownOnMain(ctx: Context, code: Int) {
+        val wasPending = clearConfirmPending
         if (code != KeyEvent.KEYCODE_BUTTON_R2 && code != KeyEvent.KEYCODE_BUTTON_THUMBR) {
             cancelClearConfirm()
         }
@@ -346,7 +348,7 @@ object RecentsOverlay {
                 shownTasks.getOrNull(selectedIndex)?.let { triggerAppInfo(ctx, it) }
             }
             KeyEvent.KEYCODE_BUTTON_R2, KeyEvent.KEYCODE_BUTTON_THUMBR -> handleClearShortcutOnMain(ctx)
-            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> dismiss()
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> if (!wasPending) dismiss()
         }
     }
 
