@@ -33,6 +33,10 @@
 #define AXIS_MAX 32767.0
 #define TICK_MS 8
 #define DOUBLE_MS 300
+#define POINTER_ICON_NULL 0
+#define POINTER_ICON_DEFAULT 1000
+#define POINTER_ICON_TX 35
+#define IDLE_REHIDE_MS 3000
 #define NBITS(x) ((((x) - 1) / (8 * sizeof(long))) + 1)
 #define TEST_BIT(b, a) (((a)[(b) / (8 * sizeof(long))] >> ((b) % (8 * sizeof(long)))) & 1)
 
@@ -40,6 +44,8 @@ static double deadzone = 0.02;
 static double pointer_speed = 1000.0;
 static double scroll_speed = 12.0;
 static int rotate_dpad = 0;
+static int ignore_touch_focus = 0;
+static int idle_hide_ms = 0;
 static const char *state_path = "/data/local/tmp/thorutil-mouse.state";
 static const char *lock_path = "/data/local/tmp/thorutil-mouse.lock";
 static const char *suspend_path = "/data/local/tmp/thorutil-mouse.suspend";
@@ -76,6 +82,10 @@ struct bridge {
     int touch_fd[2];
     int last_touch_disp;
     long last_touch_ms;
+    long last_mouse_ms;
+    // 0 = visible, 1 = hidden once, 2 = hidden + re-asserted once (for fading video HUDs).
+    int cursor_hidden;
+    long hidden_at_ms;
     // ROTATION_0=0, ROTATION_90=1, ROTATION_180=2, ROTATION_270=3; [0]=top, [1]=bottom.
     int rotation[2];
 };
@@ -94,7 +104,7 @@ static void notify(const char *event) {
         pid_t g = fork();
         if (g == 0) {
             int nul = open("/dev/null", O_RDWR);
-            if (nul >= 0) { dup2(nul, 1); dup2(nul, 2); }
+            if (nul >= 0) { dup2(nul, 1); dup2(nul, 2); if (nul > 2) close(nul); }
             execl("/system/bin/am", "am", "broadcast", "-a", "dev.popcat19.thorutil.EVENT", "-p",
                   "dev.popcat19.thorutil", "--es", "event", event, (char *)NULL);
             _exit(127);
@@ -102,6 +112,41 @@ static void notify(const char *event) {
         _exit(0);
     }
     if (pid > 0) waitpid(pid, NULL, 0);
+}
+
+// Calls IInputManager.setPointerIconType(icon) via binder without destroying the uinput
+// mouse device (preserves cursor position and avoids waking video player controls).
+static void set_pointer_icon(int icon) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        pid_t g = fork();
+        if (g == 0) {
+            char tx[16], id[16];
+            snprintf(tx, sizeof tx, "%d", POINTER_ICON_TX);
+            snprintf(id, sizeof id, "%d", icon);
+            int nul = open("/dev/null", O_RDWR);
+            if (nul >= 0) { dup2(nul, 1); dup2(nul, 2); if (nul > 2) close(nul); }
+            execl("/system/bin/service", "service", "call", "input", tx, "i32", id, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    if (pid > 0) waitpid(pid, NULL, 0);
+}
+
+static void mouse_activity(struct bridge *b) {
+    b->last_mouse_ms = now_ms();
+    if (b->cursor_hidden) {
+        b->cursor_hidden = 0;
+        b->hidden_at_ms = 0;
+        set_pointer_icon(POINTER_ICON_DEFAULT);
+    }
+}
+
+static int mouse_btns_held(const struct bridge *b) {
+    for (int i = 0; i < 5; i++)
+        if (b->held[i]) return 1;
+    return 0;
 }
 
 static void on_term(int s) { (void)s; quit_flag = 1; }
@@ -355,10 +400,18 @@ static void set_active(struct bridge *b, int on) {
             return;
         }
         b->acc_x = b->acc_y = b->acc_w = b->acc_h = 0;
+        b->last_mouse_ms = now_ms();
+        b->cursor_hidden = 0;
+        b->hidden_at_ms = 0;
         memset(b->dpad_out, 0, sizeof(b->dpad_out));
         memset(b->hat_out, 0, sizeof(b->hat_out));
         if (b->focus && !b->bottom) move_pointer(b, 1, 0, 0);
     } else {
+        if (b->cursor_hidden) {
+            b->cursor_hidden = 0;
+            b->hidden_at_ms = 0;
+            set_pointer_icon(POINTER_ICON_DEFAULT);
+        }
         for (int i = 0; i < 5; i++)
             if (b->held[i]) emit(b->mouse, EV_KEY, mouse_btns[i], 0);
         if (b->mouse >= 0) emit(b->mouse, EV_SYN, SYN_REPORT, 0);
@@ -418,6 +471,7 @@ static void tick(struct bridge *b, double dt) {
     stick(b->ax[ABS_X], b->ax[ABS_Y], rot, &px, &py);
     stick(b->ax[ABS_Z], b->ax[ABS_RZ], rot, &sx, &sy);
     if (!px && !py && !sx && !sy) { b->acc_x = b->acc_y = b->acc_w = b->acc_h = 0; return; }
+    mouse_activity(b);
     b->acc_x += px * pointer_speed * dt;
     b->acc_y += py * pointer_speed * dt;
     b->acc_w += -sy * scroll_speed * dt;
@@ -455,6 +509,7 @@ static void handle(struct bridge *b, const struct input_event *ev) {
     }
     if (ev->type == EV_KEY && ev->code == BTN_THUMBL) {
         if (ev->value == 1) {
+            mouse_activity(b);
             move_pointer(b, !b->bottom, 0, 0);
             notify(b->bottom ? "pointer_bottom" : "pointer_top");
         }
@@ -464,6 +519,7 @@ static void handle(struct bridge *b, const struct input_event *ev) {
         int i = mouse_btn_index(ev->code);
         if (i >= 0) {
             if (ev->value == 2) return;
+            mouse_activity(b);
             b->held[i] = ev->value != 0;
             emit(b->mouse, EV_KEY, mouse_btns[i], b->held[i]);
             emit(b->mouse, EV_SYN, SYN_REPORT, 0);
@@ -503,7 +559,10 @@ static void sync_cmd(struct bridge *b) {
     if (!strncmp(buf, "top", 3)) b->focus = 0;
     else if (!strncmp(buf, "bottom", 6)) b->focus = 1;
     else return;
-    if (b->active && b->bottom != b->focus) move_pointer(b, b->focus, 0, 0);
+    if (b->active && b->bottom != b->focus) {
+        mouse_activity(b);
+        move_pointer(b, b->focus, 0, 0);
+    }
 }
 
 static void sync_tap(struct bridge *b) {
@@ -550,8 +609,10 @@ static void read_touch(struct bridge *b, int i) {
         b->last_touch_disp = i;
         b->last_touch_ms = t;
     }
-    b->focus = i;
-    if (b->active && b->bottom != i) move_pointer(b, i, 0, 0);
+    if (!ignore_touch_focus) {
+        b->focus = i;
+        if (b->active && b->bottom != i) move_pointer(b, i, 0, 0);
+    }
 }
 
 static void read_ayn(struct bridge *b) {
@@ -592,9 +653,12 @@ static int read_focus_lock(void) {
 
 static void usage(const char *argv0) {
     fprintf(stderr,
-            "usage: %s [-a] [-d deadzone 0-0.9] [-p pointer px/s] [-s scroll detents/s] [-f state file]\n"
+            "usage: %s [-a] [-r] [-t] [-i idle_s] [-d deadzone 0-0.9] [-p pointer px/s] [-s scroll detents/s] [-f state file]\n"
             "       %s -k\n"
             "  -a  start in mouse mode\n"
+            "  -r  rotate D-pad to match display orientation in mouse mode\n"
+            "  -t  ignore touch focus and start mouse mode on top screen\n"
+            "  -i  hide cursor after N idle seconds in mouse mode (0 = off)\n"
             "  -k  send one AYN key tap and exit\n"
             "  L3 in mouse mode moves the pointer between top and bottom screens\n"
             "  SIGUSR1 toggles mouse mode; double-press Select also toggles\n"
@@ -604,11 +668,13 @@ static void usage(const char *argv0) {
 
 int main(int argc, char **argv) {
     int start_active = 0, opt;
-    while ((opt = getopt(argc, argv, "ard:p:s:f:hk")) != -1) {
+    while ((opt = getopt(argc, argv, "arti:d:p:s:f:hk")) != -1) {
         switch (opt) {
         case 'k': return ayn_tap();
         case 'a': start_active = 1; break;
         case 'r': rotate_dpad = 1; break;
+        case 't': ignore_touch_focus = 1; break;
+        case 'i': idle_hide_ms = atoi(optarg) * 1000; break;
         case 'd': deadzone = atof(optarg); break;
         case 'p': pointer_speed = atof(optarg); break;
         case 's': scroll_speed = atof(optarg); break;
@@ -616,7 +682,7 @@ int main(int argc, char **argv) {
         default: usage(argv[0]); return opt == 'h' ? 0 : 2;
         }
     }
-    if (deadzone < 0 || deadzone > 0.9) { usage(argv[0]); return 2; }
+    if (deadzone < 0 || deadzone > 0.9 || idle_hide_ms < 0) { usage(argv[0]); return 2; }
 
     umask(0);
     // Single instance: boot start and the app can both try to launch this.
@@ -647,7 +713,7 @@ int main(int argc, char **argv) {
     write_state(0);
     // A killed daemon can leave the pointer on the bottom screen.
     move_pointer(&b, 0, 1, 1);
-    b.focus = read_focus_lock();
+    b.focus = ignore_touch_focus ? 0 : read_focus_lock();
     b.rotation[0] = b.rotation[1] = 1;
     sync_rotation(&b);
     sync_suspend(&b);
@@ -668,7 +734,20 @@ int main(int argc, char **argv) {
             if (b.touch_fd[i] < 0) b.touch_fd[i] = find_dev(touch_names[i], 0);
 
         int moving = b.active && sticks_active(&b);
-        int timeout = moving ? TICK_MS : -1;
+        int timeout = -1;
+        if (moving) {
+            timeout = TICK_MS;
+        } else if (b.active && idle_hide_ms > 0 && !mouse_btns_held(&b)) {
+            long t = now_ms();
+            long rem = -1;
+            if (b.cursor_hidden == 0) rem = (b.last_mouse_ms + idle_hide_ms) - t;
+            else if (b.cursor_hidden == 1) rem = (b.hidden_at_ms + IDLE_REHIDE_MS) - t;
+            if (b.cursor_hidden < 2) {
+                if (rem < 0) rem = 0;
+                else if (rem > 60000) rem = 60000;
+                timeout = (int)rem;
+            }
+        }
         struct pollfd fds[4] = {{.fd = b.pad, .events = POLLIN}, {.fd = b.ayn_fd, .events = POLLIN},
                                 {.fd = b.touch_fd[0], .events = POLLIN}, {.fd = b.touch_fd[1], .events = POLLIN}};
         struct pollfd pfd;
@@ -700,7 +779,20 @@ int main(int argc, char **argv) {
             last_tick = t;
         } else {
             last_tick = 0;
-            if (b.active) b.acc_x = b.acc_y = b.acc_w = b.acc_h = 0;
+            if (b.active) {
+                b.acc_x = b.acc_y = b.acc_w = b.acc_h = 0;
+                if (idle_hide_ms > 0 && !mouse_btns_held(&b)) {
+                    long t = now_ms();
+                    if (b.cursor_hidden == 0 && t - b.last_mouse_ms >= idle_hide_ms) {
+                        b.cursor_hidden = 1;
+                        b.hidden_at_ms = t;
+                        set_pointer_icon(POINTER_ICON_NULL);
+                    } else if (b.cursor_hidden == 1 && t - b.hidden_at_ms >= IDLE_REHIDE_MS) {
+                        b.cursor_hidden = 2;
+                        set_pointer_icon(POINTER_ICON_NULL);
+                    }
+                }
+            }
         }
         continue;
     lost:

@@ -69,6 +69,30 @@ object Changelog {
             applyLegacy = { Prefs.setMouseRotateDpad(it, false) },
         ),
         PrefChange(
+            id = "mouse_ignore_touch_focus",
+            revision = 1,
+            version = "0.4.10",
+            title = "Ignore touch focus in mouse mode",
+            summary = "Starts mouse emulation on the top screen and ignores screen taps so accidental touches do not pull the pointer away. L3 and AYN focus combos still move it.",
+            legacyLabel = "Legacy: touch moves pointer",
+            newLabel = "New: ignore touch, start on top",
+            isNew = { Prefs.mouseIgnoreTouchFocus(it) },
+            applyNew = { Prefs.setMouseIgnoreTouchFocus(it, true) },
+            applyLegacy = { Prefs.setMouseIgnoreTouchFocus(it, false) },
+        ),
+        PrefChange(
+            id = "mouse_idle_hide",
+            revision = 1,
+            version = "0.4.10",
+            title = "Hide idle mouse cursor",
+            summary = "Hides the mouse pointer after 3 s of stick or button inactivity (re-checks once for fading player controls), restoring immediately on mouse input. Delay is configurable in Mouse emulation.",
+            legacyLabel = "Legacy: Android 15s timeout",
+            newLabel = "New: hide after 3s idle",
+            isNew = { Prefs.mouseIdleHide(it) },
+            applyNew = { Prefs.setMouseIdleHide(it, true) },
+            applyLegacy = { Prefs.setMouseIdleHide(it, false) },
+        ),
+        PrefChange(
             id = "ayn_focus_combos",
             revision = 1,
             version = "0.4.7",
@@ -227,7 +251,7 @@ object Changelog {
     fun syncAfterApply(ctx: Context) {
         val app = ctx.applicationContext
         Bg.post {
-            if (Prefs.daemonOnBoot(app) && Daemon.state().running) Daemon.restart(app)
+            if (Daemon.state().running) Daemon.restart(app)
             if (Prefs.fanManaged(app) && !FanDaemon.stopped) FanDaemon.restart(app)
             if (Prefs.perfAdaptive(app)) {
                 if (!PerfDaemon.state().running) PerfDaemon.start(app)

@@ -39,6 +39,9 @@ object Prefs {
     private const val IME_REBIND_FIX = "ime_rebind_fix"
     private const val ROTATION_REVERSE_CYCLE = "rotation_reverse_in_cycle"
     private const val MOUSE_ROTATE_DPAD = "mouse_rotate_dpad"
+    private const val MOUSE_IGNORE_TOUCH_FOCUS = "mouse_ignore_touch_focus"
+    private const val MOUSE_IDLE_HIDE = "mouse_idle_hide"
+    private const val MOUSE_IDLE_HIDE_S = "mouse_idle_hide_s"
     private const val AYN_FOCUS_COMBOS = "ayn_focus_combos"
     private const val AYN_FOCUS_MOVES_PAD = "ayn_focus_moves_pad"
     private const val AYN_HOME_DOUBLE_RECENTS = "ayn_home_double_recents"
@@ -60,6 +63,7 @@ object Prefs {
     const val FAN_GUARD_S_DEFAULT = 20
     const val FAN_ZERO_OFF_C_DEFAULT = 44f
     const val FAN_ZERO_ON_C_DEFAULT = 48f
+    const val MOUSE_IDLE_HIDE_S_DEFAULT = 3
 
     @Volatile
     private var cachedSp: SharedPreferences? = null
@@ -175,6 +179,15 @@ object Prefs {
 
     fun mouseRotateDpad(ctx: Context) = sp(ctx).getBoolean(MOUSE_ROTATE_DPAD, false)
     fun setMouseRotateDpad(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(MOUSE_ROTATE_DPAD, v).apply()
+
+    fun mouseIgnoreTouchFocus(ctx: Context) = sp(ctx).getBoolean(MOUSE_IGNORE_TOUCH_FOCUS, false)
+    fun setMouseIgnoreTouchFocus(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(MOUSE_IGNORE_TOUCH_FOCUS, v).apply()
+
+    fun mouseIdleHide(ctx: Context) = sp(ctx).getBoolean(MOUSE_IDLE_HIDE, false)
+    fun setMouseIdleHide(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(MOUSE_IDLE_HIDE, v).apply()
+
+    fun mouseIdleHideSec(ctx: Context) = sp(ctx).getInt(MOUSE_IDLE_HIDE_S, MOUSE_IDLE_HIDE_S_DEFAULT).coerceIn(1, 15)
+    fun setMouseIdleHideSec(ctx: Context, v: Int) = sp(ctx).edit().putInt(MOUSE_IDLE_HIDE_S, v.coerceIn(1, 15)).apply()
 
     fun aynFocusCombos(ctx: Context) = sp(ctx).getBoolean(AYN_FOCUS_COMBOS, true)
     fun setAynFocusCombos(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_FOCUS_COMBOS, v).apply()

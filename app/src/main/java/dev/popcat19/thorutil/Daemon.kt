@@ -39,7 +39,9 @@ object Daemon {
     fun start(ctx: Context): Boolean = synchronized(proc.lock) {
         stopped = false
         val dpad = if (Prefs.mouseRotateDpad(ctx)) " -r" else ""
-        val args = "-d ${Prefs.deadzone(ctx)} -p ${Prefs.pointerSpeed(ctx)} -s ${Prefs.scrollSpeed(ctx)}$dpad"
+        val touch = if (Prefs.mouseIgnoreTouchFocus(ctx)) " -t" else ""
+        val idle = if (Prefs.mouseIdleHide(ctx)) " -i ${Prefs.mouseIdleHideSec(ctx)}" else ""
+        val args = "-d ${Prefs.deadzone(ctx)} -p ${Prefs.pointerSpeed(ctx)} -s ${Prefs.scrollSpeed(ctx)}$dpad$touch$idle"
         // Remove stale root-owned touch file before launch so shell-run daemon can overwrite it.
         proc.launch(ctx, args = args, preCmd = "rm -f $TOUCH")
     }

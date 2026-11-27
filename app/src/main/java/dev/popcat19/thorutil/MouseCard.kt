@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @Composable
 fun MouseCard(epoch: Int, uiActive: Boolean = true) {
@@ -35,6 +36,9 @@ fun MouseCard(epoch: Int, uiActive: Boolean = true) {
     var onBoot by remember(epoch) { mutableStateOf(Prefs.daemonOnBoot(ctx)) }
     var lockOff by remember(epoch) { mutableStateOf(Prefs.lockSuspend(ctx)) }
     var rotDpad by remember(epoch) { mutableStateOf(Prefs.mouseRotateDpad(ctx)) }
+    var ignoreTouch by remember(epoch) { mutableStateOf(Prefs.mouseIgnoreTouchFocus(ctx)) }
+    var idleHide by remember(epoch) { mutableStateOf(Prefs.mouseIdleHide(ctx)) }
+    var idleSec by remember(epoch) { mutableFloatStateOf(Prefs.mouseIdleHideSec(ctx).toFloat()) }
     var dz by remember(epoch) { mutableFloatStateOf(Prefs.deadzone(ctx)) }
     var ptr by remember(epoch) { mutableFloatStateOf(Prefs.pointerSpeed(ctx)) }
     var scr by remember(epoch) { mutableFloatStateOf(Prefs.scrollSpeed(ctx)) }
@@ -87,11 +91,33 @@ fun MouseCard(epoch: Int, uiActive: Boolean = true) {
                 Prefs.setMouseRotateDpad(ctx, it)
                 act { if (Daemon.state().running) Daemon.restart(ctx) }
             }
+            SwitchRow(
+                title = "Ignore touch focus",
+                subtitle = "Start pointer on top; only L3 or AYN focus combos move it",
+                checked = ignoreTouch,
+            ) {
+                ignoreTouch = it
+                Prefs.setMouseIgnoreTouchFocus(ctx, it)
+                act { if (Daemon.state().running) Daemon.restart(ctx) }
+            }
+            SwitchRow(
+                title = "Hide cursor when idle",
+                subtitle = "Hides pointer after inactivity (useful during playback); returns on mouse input",
+                checked = idleHide,
+            ) {
+                idleHide = it
+                Prefs.setMouseIdleHide(ctx, it)
+                act { if (Daemon.state().running) Daemon.restart(ctx) }
+            }
+            if (idleHide) {
+                NumberSetting("Idle hide delay", idleSec, 1f..15f, 1f, 0, "s") { idleSec = it }
+            }
             NumberSetting("Deadzone", dz, 0f..0.4f, 0.01f, 2) { dz = it }
             NumberSetting("Pointer speed", ptr, 200f..4000f, 50f, 0, "px/s") { ptr = it }
             NumberSetting("Scroll speed", scr, 1f..60f, 1f, 0, "detents/s") { scr = it }
             OutlinedButton(onClick = {
                 Prefs.setTuning(ctx, dz, ptr, scr)
+                Prefs.setMouseIdleHideSec(ctx, idleSec.roundToInt())
                 act { if (Daemon.state().running) Daemon.restart(ctx) }
             }) { Text("Apply tuning") }
         }
