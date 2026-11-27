@@ -57,6 +57,18 @@ object Changelog {
             applyLegacy = { Prefs.setRotationReverseInCycle(it, false) },
         ),
         PrefChange(
+            id = "pip_fix_mode",
+            revision = 1,
+            version = "0.4.11",
+            title = "Bottom screen PiP input fix",
+            summary = "Fixes dead touch input on bottom-screen PiP windows (Android 13 SystemUI only binds PiP input on display 0). Enables a tap overlay (play/pause, expand, move to top, close); Move to top is also selectable in the Bottom screen PiP card.",
+            legacyLabel = "Legacy: off (stock)",
+            newLabel = "New: bottom PiP overlay",
+            isNew = { Prefs.pipFixMode(it) != PipFixMode.OFF },
+            applyNew = { Prefs.setPipFixMode(it, PipFixMode.OVERLAY) },
+            applyLegacy = { Prefs.setPipFixMode(it, PipFixMode.OFF) },
+        ),
+        PrefChange(
             id = "mouse_rotate_dpad",
             revision = 1,
             version = "0.4.7",
@@ -257,6 +269,9 @@ object Changelog {
                 if (!PerfDaemon.state().running) PerfDaemon.start(app)
             } else if (PerfDaemon.state().running) {
                 PerfDaemon.stop(app)
+            }
+            if (Prefs.pipFixMode(app) == PipFixMode.OVERLAY && !Rotation.canOverlay(app)) {
+                Rotation.grantOverlay(app)
             }
             if (!Prefs.aynScreenLock(app)) AynActions.unlock(app, notify = false)
             KeeperService.sync(app)

@@ -67,6 +67,7 @@ class KeeperService : Service() {
         if (hadPrev && Prefs.imeRebindFix(this)) {
             scheduleImeRebind(600, 1500)
         }
+        PipFix.nudge(300)
     }
 
     private fun scheduleImeRebind(firstMs: Long, secondMs: Long) {
@@ -167,6 +168,7 @@ class KeeperService : Service() {
             if (Prefs.fanManaged(this@KeeperService)) handler.post { FanDaemon.setScreenOff(off) }
             if (Prefs.perfAdaptive(this@KeeperService)) handler.post { PerfDaemon.setScreenOff(off) }
             if (off) hint?.stop() else syncHint()
+            PipFix.sync(this@KeeperService, handler, !off)
             // The assistants write their reset shortly after these broadcasts; deduplicate bursts.
             scheduleScreenEnforce()
             if (!off && Prefs.imeRebindFix(this@KeeperService)) {
@@ -195,6 +197,7 @@ class KeeperService : Service() {
         }
         secondResumeObserver = object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean) {
+                PipFix.nudge(300)
                 if (!Prefs.imeRebindFix(this@KeeperService)) return
                 handler.removeCallbacks(imeRebind)
                 handler.postDelayed(imeRebind, 500)
@@ -233,6 +236,7 @@ class KeeperService : Service() {
         Rotation.apply(this, rot)
         handler.post { Rotation.syncForceLandscape(this, rot) }
         syncHint()
+        PipFix.sync(this, handler, getSystemService(PowerManager::class.java).isInteractive)
         handler.post { VolumeLink.sync(this, force = !bootRetriesScheduled) }
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification())
         // Boot: Shizuku can come up after us, so retry a few times once per service lifetime.
@@ -302,6 +306,7 @@ class KeeperService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        PipFix.stop()
         Rotation.remove()
         getSystemService(DisplayManager::class.java).unregisterDisplayListener(displays)
         hint?.stop()
@@ -321,7 +326,8 @@ class KeeperService : Service() {
 
         private fun needed(ctx: Context) = Prefs.pinManaged(ctx) || Prefs.imeRebindFix(ctx) ||
             Prefs.lockSuspend(ctx) || Prefs.rotation(ctx) != RotationMode.AUTO ||
-            Prefs.rotationHint(ctx) || Prefs.volumeLink(ctx) || Prefs.daemonOnBoot(ctx) ||
+            Prefs.rotationHint(ctx) || Prefs.pipFixMode(ctx) != PipFixMode.OFF ||
+            Prefs.volumeLink(ctx) || Prefs.daemonOnBoot(ctx) ||
             Prefs.fanManaged(ctx) || Prefs.perfAdaptive(ctx) || AutoLaunch.hasKeepAlive(ctx)
 
         fun sync(ctx: Context) {

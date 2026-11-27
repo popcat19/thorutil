@@ -38,6 +38,7 @@ object Prefs {
     private const val SAVED_PERF_MODE = "saved_perf_mode"
     private const val IME_REBIND_FIX = "ime_rebind_fix"
     private const val ROTATION_REVERSE_CYCLE = "rotation_reverse_in_cycle"
+    private const val PIP_FIX_MODE = "pip_fix_mode"
     private const val MOUSE_ROTATE_DPAD = "mouse_rotate_dpad"
     private const val MOUSE_IGNORE_TOUCH_FOCUS = "mouse_ignore_touch_focus"
     private const val MOUSE_IDLE_HIDE = "mouse_idle_hide"
@@ -176,6 +177,9 @@ object Prefs {
 
     fun rotationReverseInCycle(ctx: Context) = sp(ctx).getBoolean(ROTATION_REVERSE_CYCLE, false)
     fun setRotationReverseInCycle(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(ROTATION_REVERSE_CYCLE, v).apply()
+
+    fun pipFixMode(ctx: Context) = PipFixMode.of(sp(ctx).getInt(PIP_FIX_MODE, PipFixMode.OFF.id))
+    fun setPipFixMode(ctx: Context, m: PipFixMode) = sp(ctx).edit().putInt(PIP_FIX_MODE, m.id).apply()
 
     fun mouseRotateDpad(ctx: Context) = sp(ctx).getBoolean(MOUSE_ROTATE_DPAD, false)
     fun setMouseRotateDpad(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(MOUSE_ROTATE_DPAD, v).apply()

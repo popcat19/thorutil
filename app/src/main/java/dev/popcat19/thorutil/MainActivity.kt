@@ -154,6 +154,7 @@ private fun Screen(modifier: Modifier, openChangelogSignal: Int, uiActive: Boole
 
         PinCard(prefsEpoch)
         RotationCard(prefsEpoch)
+        PipCard(prefsEpoch)
         DensityCard(prefsEpoch)
         VolumeCard(prefsEpoch)
         FanCard(prefsEpoch, uiActive)

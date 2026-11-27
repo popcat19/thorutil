@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import dev.popcat19.thorutil.Daemon
+import dev.popcat19.thorutil.PipFix
 import dev.popcat19.thorutil.Prefs
 import dev.popcat19.thorutil.Priv
 import dev.popcat19.thorutil.brightness.BrightnessLink
@@ -115,6 +116,7 @@ object AynActions {
         val d = lockedDisplay?.let(::other) ?: targetDisplay(ctx)
         Log.i(TAG, "back -> $d")
         Priv.sh("input -d $d keyevent BACK")
+        PipFix.nudge()
     }
 
     fun stepBrightness(ctx: Context, delta: Int) {
@@ -203,6 +205,7 @@ object AynActions {
             val r2 = Priv.sh("am start --display $d -a android.intent.action.MAIN -c $cat -f 0x10200000")
             if (r2.code != 0 || r2.out.contains("Error:")) Priv.sh("input -d $d keyevent HOME")
         }
+        PipFix.nudge()
         if (display != null) Feedback.show(ctx, FeedbackType.HOME, "Home: ${name(d)}", d == TOP, d)
     }
 
@@ -287,7 +290,9 @@ object AynActions {
                 standard = false
                 return@let
             }
-            if (line.contains("mActivityType=")) standard = line.contains("mActivityType=standard ")
+            if (line.contains("mActivityType=")) {
+                standard = line.contains("mActivityType=standard ") && !line.contains("mWindowingMode=pinned")
+            }
             val t = task.find(line) ?: continue
             if (standard && root >= 0 && res.none { it.rootId == root }) res.add(Task(root, display, t.groupValues[1]))
         }
