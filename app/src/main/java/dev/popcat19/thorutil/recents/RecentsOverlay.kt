@@ -115,6 +115,7 @@ object RecentsOverlay {
     }
 
     fun open(ctx: Context, display: Int? = null) {
+        traceCaller("open display=$display")
         val app = ctx.applicationContext
         lastAppCtx = app
         val seq = sessionSeq.incrementAndGet()
@@ -146,7 +147,13 @@ object RecentsOverlay {
         }
     }
 
+    private fun traceCaller(what: String) {
+        val trace = Log.getStackTraceString(Throwable(what)).replace("'", " ").replace("\"", " ").replace("$", "_").replace("`", " ")
+        Bg.post { dev.popcat19.thorutil.Priv.sh("printf '%s\\n' '$trace' >> /data/local/tmp/thorutil-recents.log; chmod 666 /data/local/tmp/thorutil-recents.log") }
+    }
+
     fun dismiss(releaseInput: Boolean = true) {
+        if (openFlag) traceCaller("dismiss releaseInput=$releaseInput")
         sessionSeq.incrementAndGet()
         openFlag = false
         val app = lastAppCtx
