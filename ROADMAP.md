@@ -57,7 +57,17 @@
 
 ## v0.5.0
 
-- [ ] Check for existing community app first.
+- [x] `feat(launcher): add per-screen home with clock, search and app grid`
+  - Top HOME and bottom SECONDARY_HOME activities, D-pad navigable, A open, X options, Y search, B clear.
+  - Opt-in; enabling records the previous Home and disabling restores it.
+- [x] `feat(launcher): add favorites row, reorder and options menu`
+  - Move earlier/later, app info, uninstall; long-press and footer chips for touch.
+- [x] `feat(launcher): add now playing row next to clock`
+  - Notification listener grant via shell, prev/play-pause/next as a focusable row.
+- [x] `feat(launcher): add opt-in close of top keyboard from bottom home`
+- [x] `feat(app): add scoped home and back combos`
+  - Hold Home/Back + L1/R1 targets top/bottom; Home + shoulder 2x recents, Back + shoulder 2x previous app.
+  - Home + L3 swaps focus, Back + L3 swaps windows; Back hold unbound while enabled.
 - [x] `feat(app): add per-screen recents overlay`
   - Gamepad list on focused display: open, lock, app info, clear all, move screen.
   - Deferred: split screen, floating.
