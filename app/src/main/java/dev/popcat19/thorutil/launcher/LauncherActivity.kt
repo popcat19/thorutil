@@ -283,7 +283,7 @@ open class LauncherActivity : Activity() {
     private fun launchApp(a: LauncherApp) {
         if (search.hasFocus()) dismissIme()
         if (display == dev.popcat19.thorutil.ayn.AynActions.BOTTOM) LauncherIme.dismissOther(this)
-        LauncherApps.launch(a, display)
+        LauncherApps.launch(this, a, display)
     }
 
     private fun renderFavs() {
