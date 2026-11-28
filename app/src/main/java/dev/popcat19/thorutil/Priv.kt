@@ -45,6 +45,9 @@ object Priv {
         private var writer: BufferedWriter? = null
         private var reader: BufferedReader? = null
 
+        @Volatile
+        var lastError: String = ""
+
         val isOpen: Boolean
             get() = synchronized(lock) { alive() }
 
@@ -86,6 +89,7 @@ object Priv {
             val p = try {
                 launcher()
             } catch (e: Throwable) {
+                lastError = "launch failed: ${e.javaClass.simpleName} ${e.cause?.message ?: e.message}"
                 Log.w(TAG, "$name launch failed: ${e.message}")
                 return false
             }
@@ -103,6 +107,7 @@ object Priv {
                 res != null && res.code == 0
             }
             if (!ok) {
+                lastError = "init failed: $res"
                 Log.w(TAG, "$name init failed: $res")
                 closeLocked()
                 return false
@@ -113,6 +118,7 @@ object Priv {
         fun exec(cmd: String, timeoutMs: Long = TIMEOUT_MS): Result? = synchronized(lock) {
             if (cmd.isBlank()) return Result(0, "")
             if (!readyCheck()) {
+                lastError = "not ready"
                 closeLocked()
                 return null
             }
@@ -165,12 +171,14 @@ object Priv {
                     sb.append(line)
                 }
                 if (exitCode == null) {
+                    lastError = if (timedOut.get()) "timeout ${timeoutMs}ms" else "stream ended before marker"
                     if (timedOut.get()) Log.w(TAG, "$name timed out after ${timeoutMs}ms")
                     null to timedOut.get()
                 } else {
                     Result(exitCode, sb.toString().trim()) to false
                 }
             } catch (e: Throwable) {
+                lastError = if (timedOut.get()) "timeout ${timeoutMs}ms" else "io ${e.javaClass.simpleName} ${e.message}"
                 if (!timedOut.get()) Log.w(TAG, "$name io failed: ${e.message}")
                 null to timedOut.get()
             } finally {
@@ -252,9 +260,10 @@ object Priv {
         // Only fall back to root if Shizuku is unavailable or fails to launch;
         // never probe su while Shizuku is active.
         val t0 = SystemClock.elapsedRealtime()
+        var shizukuNull = false
         if (shizukuReady()) {
             val r = shizukuShell.exec(cmd)
-            trace("shizuku", cmd, r, t0)
+            if (r != null) trace("shizuku", cmd, r, t0) else shizukuNull = true
             if (r != null) {
                 if (r.code != 0) Log.w(TAG, "'$cmd' -> ${r.code}: ${r.out}")
                 return r
@@ -263,6 +272,7 @@ object Priv {
         if (rootReady()) {
             val t1 = SystemClock.elapsedRealtime()
             val r = rootShell.exec(cmd)
+            if (shizukuNull) trace("shizuku", cmd, null, t0)
             trace("root", cmd, r, t1)
             if (r != null) {
                 if (r.code != 0) Log.w(TAG, "'$cmd' -> ${r.code}: ${r.out}")
@@ -279,11 +289,19 @@ object Priv {
         val ms = SystemClock.elapsedRealtime() - t0
         if (r != null && r.code == 0 && ms < TRACE_SLOW_MS) return
         fun clean(s: String, n: Int) = s.take(n).replace(Regex("['\"$`\\\\]"), " ").replace(Regex("\\s+"), " ")
-        val line = "${System.currentTimeMillis()} $backend code=${r?.code ?: "null"} ${ms}ms cmd=${clean(cmd, 200)} out=${clean(r?.out ?: "", 300)}"
+        val err = when {
+            r != null -> ""
+            backend == "shizuku" -> shizukuShell.lastError
+            backend == "root" -> rootShell.lastError
+            else -> "shizuku=${shizukuShell.lastError} root=${rootShell.lastError}"
+        }
+        val line = "${System.currentTimeMillis()} $backend code=${r?.code ?: "null"} ${ms}ms err=${clean(err, 200)} cmd=${clean(cmd, 200)} out=${clean(r?.out ?: "", 300)}"
         Bg.post {
             val f = TRACE_FILE
             val w = "[ \$(wc -c < $f 2>/dev/null || echo 0) -gt 200000 ] && : > $f; printf '%s\\n' '$line' >> $f; chmod 666 $f"
-            if (backend == "root") rootShell.exec(w) else shizukuShell.exec(w)
+            // A failing shell cannot log its own failure, so prefer whichever shell is open, root first.
+            val done = if (rootShell.isOpen) rootShell.exec(w) else shizukuShell.exec(w)
+            if (done == null) Log.w(TAG, "trace write failed: $line")
         }
     }
 
