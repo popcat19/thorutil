@@ -193,7 +193,7 @@ open class LauncherActivity : Activity() {
             setOnTouchListener { _, ev ->
                 if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
                     if (search.hasFocus()) dismissIme()
-                    if (display == dev.popcat19.thorutil.ayn.AynActions.BOTTOM) LauncherIme.dismissOther(this@LauncherActivity)
+                    if (this@LauncherActivity.display == dev.popcat19.thorutil.ayn.AynActions.BOTTOM) LauncherIme.dismissOther(this@LauncherActivity)
                 }
                 false
             }
