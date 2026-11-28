@@ -38,6 +38,9 @@ class AynKeyService : AccessibilityService() {
     private var backTapPending = false
     private var backSwallowedByRecents = false
     private val swallowed = HashSet<Int>()
+    private var heldAt = 0L
+    private var homeAt = 0L
+    private var backAt = 0L
     private val pendingBrightness = AtomicInteger(0)
     private val brightnessBusy = AtomicBoolean(false)
     private val main = Handler(Looper.getMainLooper())
@@ -144,10 +147,32 @@ class AynKeyService : AccessibilityService() {
         super.onDestroy()
     }
 
+    // A modifier UP can be lost when the mouse daemon grabs the pad mid-hold, leaving AYN/Home/Back
+    // stuck and hijacking Vol and shoulders. Expire modifiers idle past their window; a late UP
+    // is then treated as a combo release so it fires nothing.
+    private fun expireStale(now: Long) {
+        if (held && now - heldAt > AYN_STALE_MS) {
+            held = false
+            combo = true
+            stopRepeat()
+        }
+        if (homeHeld && now - homeAt > MOD_STALE_MS) {
+            homeHeld = false
+            homeCombo = true
+        }
+        if (backHeld && now - backAt > MOD_STALE_MS) {
+            backHeld = false
+            backCombo = true
+            main.removeCallbacks(backHoldRun)
+        }
+    }
+
     override fun onKeyEvent(e: KeyEvent): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        expireStale(now)
         if (isRealAyn(e)) {
             when (e.action) {
-                KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) { held = true; combo = false }
+                KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) { held = true; heldAt = now; combo = false }
                 KeyEvent.ACTION_UP -> {
                     held = false
                     stopRepeat()
@@ -161,6 +186,7 @@ class AynKeyService : AccessibilityService() {
             when (e.action) {
                 KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) {
                     homeHeld = true
+                    homeAt = now
                     if (dbl && homeTapPending) {
                         main.removeCallbacks(homeSingleRun)
                         homeTapPending = false
@@ -204,6 +230,7 @@ class AynKeyService : AccessibilityService() {
             when (e.action) {
                 KeyEvent.ACTION_DOWN -> if (e.repeatCount == 0) {
                     backHeld = true
+                    backAt = now
                     if (gest && backTapPending) {
                         main.removeCallbacks(backSingleRun)
                         main.removeCallbacks(backHoldRun)
@@ -257,8 +284,8 @@ class AynKeyService : AccessibilityService() {
             main.removeCallbacks(homeSingleRun)
             homeTapPending = false
             homeCombo = true
+            homeAt = now
             swallowed.add(code)
-            val now = android.os.SystemClock.uptimeMillis()
             val again = scoped && code == lastScopeCode && now - lastScopeAt <= SCOPE_DOUBLE_MS
             lastScopeCode = code
             lastScopeAt = now
@@ -275,8 +302,8 @@ class AynKeyService : AccessibilityService() {
                 main.removeCallbacks(backSingleRun)
                 backTapPending = false
                 backCombo = true
+                backAt = now
                 swallowed.add(code)
-                val now = android.os.SystemClock.uptimeMillis()
                 val again = scopeDisplay != null && code == lastBackScopeCode && now - lastBackScopeAt <= SCOPE_DOUBLE_MS
                 lastBackScopeCode = code
                 lastBackScopeAt = now
@@ -304,6 +331,7 @@ class AynKeyService : AccessibilityService() {
         if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && held) {
             val action = AynBinds.aynBinds(applicationContext)[code] ?: return false
             combo = true
+            heldAt = now
             swallowed.add(code)
             if (action in REPEATING) {
                 queueBrightness(action)
@@ -314,6 +342,11 @@ class AynKeyService : AccessibilityService() {
             return true
         }
         if (code in swallowed) {
+            // Fresh DOWN on a key whose UP was lost: release it instead of eating every later press.
+            if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) {
+                swallowed.remove(code)
+                return false
+            }
             if (e.action == KeyEvent.ACTION_UP) {
                 swallowed.remove(code)
                 if (code == repeatCode) stopRepeat()
@@ -359,6 +392,8 @@ class AynKeyService : AccessibilityService() {
         const val DOUBLE_TAP_MS = 260L
         const val HOLD_MS = 450L
         const val SCOPE_DOUBLE_MS = 600L
+        const val AYN_STALE_MS = 8000L
+        const val MOD_STALE_MS = 5000L
         val REPEATING = setOf(AynAction.BRIGHTNESS_UP, AynAction.BRIGHTNESS_DOWN)
     }
 }
