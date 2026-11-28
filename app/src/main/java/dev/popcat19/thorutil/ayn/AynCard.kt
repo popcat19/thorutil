@@ -125,7 +125,7 @@ fun AynCard(epoch: Int = 0, uiActive: Boolean = true) {
             }
             SwitchRow(
                 title = "Scoped Home/Back (hold + L1/R1)",
-                subtitle = "L1 top, R1 bottom, ignores touch focus. Home + shoulder 2x opens recents there; Back + shoulder 2x goes to the previous app there; Home/Back + L3 swaps focus.",
+                subtitle = "L1 top, R1 bottom, ignores touch focus. Home + shoulder 2x opens recents there; Back + shoulder 2x goes to the previous app there; Home + L3 swaps focus, Back + L3 swaps windows.",
                 checked = scopedShoulders,
             ) {
                 scopedShoulders = it

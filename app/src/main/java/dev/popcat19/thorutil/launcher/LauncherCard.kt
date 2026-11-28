@@ -26,6 +26,7 @@ import dev.popcat19.thorutil.SwitchRow
 fun LauncherCard(epoch: Int) {
     val ctx = LocalContext.current
     var enabled by remember(epoch) { mutableStateOf(Prefs.launcherHome(ctx)) }
+    var imeDismiss by remember(epoch) { mutableStateOf(Prefs.launcherImeDismiss(ctx)) }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -39,6 +40,14 @@ fun LauncherCard(epoch: Int) {
                 LauncherSwitch.set(ctx, on)
             }
             if (enabled) {
+                SwitchRow(
+                    title = "Close top keyboard from bottom home",
+                    subtitle = "Tapping or launching on the bottom home sends Back to the top screen when its keyboard is showing.",
+                    checked = imeDismiss,
+                ) {
+                    imeDismiss = it
+                    Prefs.setLauncherImeDismiss(ctx, it)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         runCatching {

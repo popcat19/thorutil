@@ -22,6 +22,7 @@ import android.widget.TextClock
 import android.widget.TextView
 import androidx.core.widget.doAfterTextChanged
 import dev.popcat19.thorutil.Bg
+import dev.popcat19.thorutil.R
 import dev.popcat19.thorutil.recents.ActionPrompt
 import dev.popcat19.thorutil.recents.PromptFlowLayout
 import dev.popcat19.thorutil.recents.PromptGlyph
@@ -40,7 +41,7 @@ open class LauncherActivity : Activity() {
     private lateinit var favLabel: TextView
     private lateinit var mediaBox: LinearLayout
     private lateinit var mediaTitle: TextView
-    private lateinit var mediaBtns: List<TextView>
+    private lateinit var mediaBtns: List<ImageView>
     private var mediaOk = false
     private val mediaHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val mediaPoll = object : Runnable {
@@ -131,9 +132,9 @@ open class LauncherActivity : Activity() {
             }
         }
         mediaBtns = listOf(
-            mediaBtn("\u23EE") { LauncherMedia.previous(it) },
-            mediaBtn("\u25B6") { LauncherMedia.playPause(it) },
-            mediaBtn("\u23ED") { LauncherMedia.next(it) },
+            mediaBtn(R.drawable.ic_media_prev) { LauncherMedia.previous(it) },
+            mediaBtn(R.drawable.ic_media_play) { LauncherMedia.playPause(it) },
+            mediaBtn(R.drawable.ic_media_next) { LauncherMedia.next(it) },
         )
         mediaBox = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -178,6 +179,7 @@ open class LauncherActivity : Activity() {
             columnWidth = dp(100)
             verticalSpacing = dp(6)
             stretchMode = GridView.STRETCH_COLUMN_WIDTH
+            defaultFocusHighlightEnabled = false
             selector = GradientDrawable().apply {
                 setColor(0x38FFFFFF)
                 cornerRadius = dp(12).toFloat()
@@ -189,7 +191,10 @@ open class LauncherActivity : Activity() {
                 true
             }
             setOnTouchListener { _, ev ->
-                if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && search.hasFocus()) dismissIme()
+                if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                    if (search.hasFocus()) dismissIme()
+                    if (display == dev.popcat19.thorutil.ayn.AynActions.BOTTOM) LauncherIme.dismissOther(this@LauncherActivity)
+                }
                 false
             }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
@@ -227,6 +232,9 @@ open class LauncherActivity : Activity() {
         root.addView(footer)
         setContentView(root)
         root.setOnClickListener { if (search.hasFocus() || imeUp) dismissIme() }
+        root.isFocusable = false
+        root.isFocusableInTouchMode = false
+        root.defaultFocusHighlightEnabled = false
         root.setOnApplyWindowInsetsListener { v, insets ->
             imeUp = insets.isVisible(android.view.WindowInsets.Type.ime())
             v.onApplyWindowInsets(insets)
@@ -274,6 +282,7 @@ open class LauncherActivity : Activity() {
 
     private fun launchApp(a: LauncherApp) {
         if (search.hasFocus()) dismissIme()
+        if (display == dev.popcat19.thorutil.ayn.AynActions.BOTTOM) LauncherIme.dismissOther(this)
         LauncherApps.launch(a, display)
     }
 
@@ -287,6 +296,7 @@ open class LauncherActivity : Activity() {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
                 isFocusable = true
+                defaultFocusHighlightEnabled = false
                 setPadding(dp(10), dp(6), dp(10), dp(6))
                 background = StateListDrawable().apply {
                     addState(
@@ -340,14 +350,13 @@ open class LauncherActivity : Activity() {
         }
     }
 
-    private fun mediaBtn(symbol: String, action: (android.content.Context) -> Unit) = TextView(this).apply {
-        text = symbol
-        textSize = 20f
-        gravity = Gravity.CENTER
-        setTextColor(Color.WHITE)
+    private fun mediaBtn(icon: Int, action: (android.content.Context) -> Unit) = ImageView(this).apply {
+        setImageResource(icon)
         isFocusable = true
+        defaultFocusHighlightEnabled = false
         background = focusBg()
-        setPadding(dp(12), dp(6), dp(12), dp(6))
+        setPadding(dp(10), dp(6), dp(10), dp(6))
+        layoutParams = LinearLayout.LayoutParams(dp(44), dp(36))
         setOnClickListener { mediaAct(action) }
     }
 
@@ -367,7 +376,7 @@ open class LauncherActivity : Activity() {
         mediaBox.visibility = View.VISIBLE
         mediaTitle.text = if (info.artist.isBlank()) info.title else "${info.title} \u00B7 ${info.artist}"
         for (b in mediaBtns) b.visibility = View.VISIBLE
-        mediaBtns[1].text = if (info.playing) "\u23F8" else "\u25B6"
+        mediaBtns[1].setImageResource(if (info.playing) R.drawable.ic_media_pause else R.drawable.ic_media_play)
     }
 
     // Null falls through to default focus search (left/right inside the row).

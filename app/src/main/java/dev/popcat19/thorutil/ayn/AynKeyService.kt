@@ -87,7 +87,8 @@ class AynKeyService : AccessibilityService() {
     }
 
     private val backHoldRun = Runnable {
-        if (backHeld && !backCombo) {
+        // Scoped shoulders own the Back combos, so hold stays unbound and Back + L3 swaps windows instead.
+        if (backHeld && !backCombo && !Prefs.aynScopedShoulders(applicationContext)) {
             backCombo = true
             worker.post { AynActions.run(applicationContext, AynAction.SWAP_WINDOWS) }
         }
@@ -281,7 +282,7 @@ class AynKeyService : AccessibilityService() {
                 lastBackScopeAt = now
                 worker.post {
                     if (scopeDisplay == null) {
-                        AynActions.run(applicationContext, AynAction.FOCUS_SWAP)
+                        AynActions.run(applicationContext, AynAction.SWAP_WINDOWS)
                     } else if (again) {
                         AynActions.run(applicationContext, if (scopeDisplay == AynActions.TOP) AynAction.PREV_APP_TOP else AynAction.PREV_APP_BOTTOM)
                     } else {

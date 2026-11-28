@@ -196,7 +196,7 @@ object Changelog {
             revision = 1,
             version = "0.5.0",
             title = "Scoped Home/Back with shoulders",
-            summary = "Hold Home or Back and press L1 (top) or R1 (bottom) to act on that screen regardless of touch or pad focus. Home + shoulder twice opens recents there, Back + shoulder twice goes to the previous app there. Home or Back + L3 swaps focus without touching the screen.",
+            summary = "Hold Home or Back and press L1 (top) or R1 (bottom) to act on that screen regardless of touch or pad focus. Home + shoulder twice opens recents there, Back + shoulder twice goes to the previous app there. Home + L3 swaps focus without touching the screen, Back + L3 swaps windows.",
             legacyLabel = "Legacy: Back + shoulder = previous app",
             newLabel = "New: scoped Home/Back + L3 swap",
             isNew = { Prefs.aynScopedShoulders(it) },

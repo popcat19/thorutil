@@ -55,6 +55,7 @@ object Prefs {
     private const val LAUNCHER_FAVORITES = "launcher_favorites"
     private const val LAUNCHER_TAGS = "launcher_tags"
     private const val LAUNCHER_PREV_HOME = "launcher_prev_home"
+    private const val LAUNCHER_IME_DISMISS = "launcher_ime_dismiss"
     private const val RECENTS_LOCKED_PKGS = "recents_locked_pkgs"
     private const val AUTOLAUNCH_APPS = "autolaunch_apps"
     private const val CHANGELOG_SEEN = "changelog_seen"
@@ -235,6 +236,9 @@ object Prefs {
 
     fun launcherPrevHome(ctx: Context): String = sp(ctx).getString(LAUNCHER_PREV_HOME, "") ?: ""
     fun setLauncherPrevHome(ctx: Context, v: String) = sp(ctx).edit().putString(LAUNCHER_PREV_HOME, v).apply()
+
+    fun launcherImeDismiss(ctx: Context) = sp(ctx).getBoolean(LAUNCHER_IME_DISMISS, false)
+    fun setLauncherImeDismiss(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(LAUNCHER_IME_DISMISS, v).apply()
 
     fun recentsLockedPackages(ctx: Context): Set<String> {
         val raw = sp(ctx).getString(RECENTS_LOCKED_PKGS, "") ?: ""

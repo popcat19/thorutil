@@ -67,6 +67,7 @@ object Export {
         "launcher_home" to Section.LAUNCHER,
         "launcher_favorites" to Section.LAUNCHER,
         "launcher_tags" to Section.LAUNCHER,
+        "launcher_ime_dismiss" to Section.LAUNCHER,
         "autolaunch_apps" to Section.AUTOLAUNCH,
     )
 
