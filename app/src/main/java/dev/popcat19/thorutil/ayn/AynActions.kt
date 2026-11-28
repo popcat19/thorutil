@@ -327,6 +327,9 @@ object AynActions {
     }
 
     private fun resolveHomeComponent(ctx: Context, cat: String): String? {
+        if (cat == "android.intent.category.SECONDARY_HOME" && Prefs.launcherHome(ctx)) {
+            return "${ctx.packageName}/.launcher.LauncherSecondaryActivity"
+        }
         val intent = Intent(Intent.ACTION_MAIN).addCategory(cat)
         val ai = runCatching {
             ctx.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo
@@ -334,9 +337,6 @@ object AynActions {
         if (ai != null && ai.packageName != "android") {
             val comp = "${ai.packageName}/${ai.name}".filter { it.isLetterOrDigit() || it in "._/$" }
             if ('/' in comp) return comp
-        }
-        if (cat == "android.intent.category.SECONDARY_HOME" && Prefs.launcherHome(ctx)) {
-            return "${ctx.packageName}/.launcher.LauncherSecondaryActivity"
         }
         val out = Priv.sh("cmd package resolve-activity --brief -a android.intent.action.MAIN -c $cat").out
         val line = out.lines().map { it.trim() }.lastOrNull { '/' in it && !it.startsWith("priority=") } ?: return null
