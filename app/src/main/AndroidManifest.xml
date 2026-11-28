@@ -108,6 +108,15 @@
                 android:resource="@xml/ayn_keys" />
         </service>
         <service
+            android:name=".launcher.MediaListenerService"
+            android:exported="true"
+            android:label="ThorUtil media"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+        <service
             android:name=".tiles.ImePinTileService"
             android:exported="true"
             android:icon="@drawable/ic_keyboard"

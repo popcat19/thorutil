@@ -47,9 +47,16 @@ fun LauncherCard(epoch: Int) {
                             )
                         }
                     }) { Text("Choose home app") }
+                    OutlinedButton(onClick = {
+                        runCatching {
+                            ctx.startActivity(
+                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    }) { Text("Media access") }
                 }
                 Text(
-                    "D-pad / stick pick an app, A opens, Y focuses search, B clears the query.",
+                    "D-pad / stick pick an app, A opens, X or long-press for options, Y focuses search, B clears the query. Media access shows now playing title and controls next to the clock.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

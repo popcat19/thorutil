@@ -29,6 +29,8 @@ class AynKeyService : AccessibilityService() {
     private var homeHeld = false
     private var lastScopeCode = 0
     private var lastScopeAt = 0L
+    private var lastBackScopeCode = 0
+    private var lastBackScopeAt = 0L
     private var homeCombo = false
     private var homeTapPending = false
     private var backHeld = false
@@ -273,9 +275,18 @@ class AynKeyService : AccessibilityService() {
                 backTapPending = false
                 backCombo = true
                 swallowed.add(code)
+                val now = android.os.SystemClock.uptimeMillis()
+                val again = scopeDisplay != null && code == lastBackScopeCode && now - lastBackScopeAt <= SCOPE_DOUBLE_MS
+                lastBackScopeCode = code
+                lastBackScopeAt = now
                 worker.post {
-                    if (scopeDisplay != null) AynActions.back(applicationContext, scopeDisplay)
-                    else AynActions.run(applicationContext, AynAction.FOCUS_SWAP)
+                    if (scopeDisplay == null) {
+                        AynActions.run(applicationContext, AynAction.FOCUS_SWAP)
+                    } else if (again) {
+                        AynActions.run(applicationContext, if (scopeDisplay == AynActions.TOP) AynAction.PREV_APP_TOP else AynAction.PREV_APP_BOTTOM)
+                    } else {
+                        AynActions.back(applicationContext, scopeDisplay)
+                    }
                 }
                 return true
             }

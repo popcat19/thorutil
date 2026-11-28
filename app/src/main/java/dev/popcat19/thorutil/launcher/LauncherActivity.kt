@@ -37,6 +37,22 @@ open class LauncherActivity : Activity() {
     private var favApps: List<LauncherApp> = emptyList()
     private lateinit var favRow: LinearLayout
     private lateinit var favScroll: HorizontalScrollView
+    private lateinit var favLabel: TextView
+    private lateinit var mediaBox: LinearLayout
+    private lateinit var mediaTitle: TextView
+    private lateinit var mediaBtns: List<TextView>
+    private var mediaOk = false
+    private val mediaHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val mediaPoll = object : Runnable {
+        override fun run() {
+            Bg.post {
+                val ok = LauncherMedia.listenerEnabled(applicationContext)
+                val info = if (ok) LauncherMedia.info(applicationContext) else null
+                runOnUiThread { renderMedia(ok, info) }
+            }
+            mediaHandler.postDelayed(this, 2000)
+        }
+    }
 
     companion object {
         private val live = java.util.concurrent.ConcurrentHashMap<Int, LauncherActivity>()
@@ -86,18 +102,55 @@ open class LauncherActivity : Activity() {
             setBackgroundColor(0xF0080B10.toInt())
             setPadding(dp(24), dp(20), dp(24), dp(12))
         }
-        root.addView(TextClock(this).apply {
-            format12Hour = "h:mm"
-            format24Hour = "H:mm"
-            textSize = 44f
+        val clockCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextClock(context).apply {
+                format12Hour = "h:mm"
+                format24Hour = "H:mm"
+                textSize = 44f
+                setTextColor(Color.WHITE)
+            })
+            addView(TextClock(context).apply {
+                format12Hour = "EEEE, MMM d"
+                format24Hour = "EEEE, MMM d"
+                textSize = 14f
+                setTextColor(0xB3FFFFFF.toInt())
+            })
+        }
+        mediaTitle = TextView(this).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            textSize = 12f
             setTextColor(Color.WHITE)
-        })
-        root.addView(TextClock(this).apply {
-            format12Hour = "EEEE, MMM d"
-            format24Hour = "EEEE, MMM d"
-            textSize = 14f
-            setTextColor(0xB3FFFFFF.toInt())
-        })
+            isFocusable = true
+            background = focusBg()
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener {
+                if (!mediaOk) LauncherMedia.openListenerSettings(this@LauncherActivity) else mediaAct { LauncherMedia.playPause(it) }
+            }
+        }
+        mediaBtns = listOf(
+            mediaBtn("\u23EE") { LauncherMedia.previous(it) },
+            mediaBtn("\u25B6") { LauncherMedia.playPause(it) },
+            mediaBtn("\u23ED") { LauncherMedia.next(it) },
+        )
+        mediaBox = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
+            visibility = View.GONE
+            addView(mediaTitle)
+            for (b in mediaBtns) addView(b)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(16) }
+        }
+        root.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(clockCol)
+                addView(mediaBox)
+            },
+        )
         search = EditText(this).apply {
             hint = "Search apps"
             isSingleLine = true
@@ -131,6 +184,10 @@ open class LauncherActivity : Activity() {
             }
             adapter = this@LauncherActivity.adapter
             setOnItemClickListener { _, _, i, _ -> shown.getOrNull(i)?.let { launchApp(it) } }
+            setOnItemLongClickListener { _, _, i, _ ->
+                shown.getOrNull(i)?.let { showMenu(it) }
+                true
+            }
             setOnTouchListener { _, ev ->
                 if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && search.hasFocus()) dismissIme()
                 false
@@ -143,6 +200,14 @@ open class LauncherActivity : Activity() {
             visibility = View.GONE
             addView(favRow)
         }
+        favLabel = TextView(this).apply {
+            text = "Favorites"
+            textSize = 11f
+            setTextColor(0x99FFFFFF.toInt())
+            visibility = View.GONE
+            setPadding(dp(4), 0, 0, dp(4))
+        }
+        root.addView(favLabel)
         root.addView(favScroll)
         root.addView(grid)
         val footer = PromptFlowLayout(this, dp(14), dp(4)).apply {
@@ -152,10 +217,16 @@ open class LauncherActivity : Activity() {
                 ActionPrompt(PromptGlyph.X, "Options"),
                 ActionPrompt(PromptGlyph.Y, "Search"),
                 ActionPrompt(PromptGlyph.B, "Clear"),
-            )) addView(RecentsPrompts.buildPromptChip(context, p))
+            )) addView(
+                RecentsPrompts.buildPromptChip(context, p).apply {
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    setOnClickListener { onPrompt(p.label) }
+                },
+            )
         }
         root.addView(footer)
         setContentView(root)
+        root.setOnClickListener { if (search.hasFocus() || imeUp) dismissIme() }
         root.setOnApplyWindowInsetsListener { v, insets ->
             imeUp = insets.isVisible(android.view.WindowInsets.Type.ime())
             v.onApplyWindowInsets(insets)
@@ -167,6 +238,8 @@ open class LauncherActivity : Activity() {
         super.onResume()
         live[display] = this
         search.text.clear()
+        mediaHandler.removeCallbacks(mediaPoll)
+        mediaHandler.post(mediaPoll)
         Bg.post {
             val list = LauncherApps.load(applicationContext)
             runOnUiThread {
@@ -179,6 +252,7 @@ open class LauncherActivity : Activity() {
     override fun onPause() {
         if (live[display] === this) live.remove(display)
         imeUp = false
+        mediaHandler.removeCallbacks(mediaPoll)
         super.onPause()
     }
 
@@ -205,7 +279,9 @@ open class LauncherActivity : Activity() {
 
     private fun renderFavs() {
         favRow.removeAllViews()
-        favScroll.visibility = if (favApps.isEmpty()) View.GONE else View.VISIBLE
+        val favVis = if (favApps.isEmpty()) View.GONE else View.VISIBLE
+        favScroll.visibility = favVis
+        favLabel.visibility = favVis
         for (a in favApps) {
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -215,7 +291,11 @@ open class LauncherActivity : Activity() {
                 background = StateListDrawable().apply {
                     addState(
                         intArrayOf(android.R.attr.state_focused),
-                        GradientDrawable().apply { setColor(0x38FFFFFF); cornerRadius = dp(12).toFloat() },
+                        GradientDrawable().apply {
+                            setColor(0x38FFFFFF)
+                            setStroke(dp(2), 0xFF8AB4F8.toInt())
+                            cornerRadius = dp(12).toFloat()
+                        },
                     )
                 }
                 addView(ImageView(context).apply {
@@ -240,6 +320,73 @@ open class LauncherActivity : Activity() {
 
     private fun favFocused() = ::favRow.isInitialized && favRow.hasFocus()
 
+    private fun mediaFocused() = ::mediaBox.isInitialized && mediaBox.hasFocus()
+
+    private fun focusBg() = StateListDrawable().apply {
+        addState(
+            intArrayOf(android.R.attr.state_focused),
+            GradientDrawable().apply {
+                setColor(0x38FFFFFF)
+                setStroke(dp(2), 0xFF8AB4F8.toInt())
+                cornerRadius = dp(12).toFloat()
+            },
+        )
+    }
+
+    private fun mediaAct(action: (android.content.Context) -> Unit) {
+        Bg.post {
+            action(applicationContext)
+            mediaHandler.postDelayed({ mediaPoll.run() }, 300)
+        }
+    }
+
+    private fun mediaBtn(symbol: String, action: (android.content.Context) -> Unit) = TextView(this).apply {
+        text = symbol
+        textSize = 20f
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        isFocusable = true
+        background = focusBg()
+        setPadding(dp(12), dp(6), dp(12), dp(6))
+        setOnClickListener { mediaAct(action) }
+    }
+
+    private fun renderMedia(ok: Boolean, info: MediaInfo?) {
+        mediaOk = ok
+        if (!ok) {
+            mediaBox.visibility = View.VISIBLE
+            mediaTitle.text = "Enable media access"
+            for (b in mediaBtns) b.visibility = View.GONE
+            return
+        }
+        if (info == null) {
+            if (mediaFocused()) grid.requestFocus()
+            mediaBox.visibility = View.GONE
+            return
+        }
+        mediaBox.visibility = View.VISIBLE
+        mediaTitle.text = if (info.artist.isBlank()) info.title else "${info.title} \u00B7 ${info.artist}"
+        for (b in mediaBtns) b.visibility = View.VISIBLE
+        mediaBtns[1].text = if (info.playing) "\u23F8" else "\u25B6"
+    }
+
+    // Null falls through to default focus search (left/right inside the row).
+    private fun mediaKey(code: Int): Boolean? = when (code) {
+        KeyEvent.KEYCODE_DPAD_DOWN -> {
+            (if (favRow.childCount > 0) favRow.getChildAt(0) else grid).requestFocus()
+            true
+        }
+        KeyEvent.KEYCODE_DPAD_UP -> true
+        KeyEvent.KEYCODE_BUTTON_A,
+        KeyEvent.KEYCODE_DPAD_CENTER -> {
+            currentFocus?.performClick()
+            true
+        }
+        KeyEvent.KEYCODE_BUTTON_X,
+        KeyEvent.KEYCODE_BUTTON_START -> true
+        else -> null
+    }
+
     // Null means the key is not handled by the favorites row and falls through to the grid handler.
     private fun favKey(code: Int): Boolean? {
         val idx = (0 until favRow.childCount).firstOrNull { favRow.getChildAt(it).hasFocus() } ?: return null
@@ -256,7 +403,10 @@ open class LauncherActivity : Activity() {
                 grid.requestFocus()
                 true
             }
-            KeyEvent.KEYCODE_DPAD_UP -> true
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (mediaBox.visibility == View.VISIBLE) mediaBtns[1].requestFocus()
+                true
+            }
             KeyEvent.KEYCODE_BUTTON_A,
             KeyEvent.KEYCODE_DPAD_CENTER -> {
                 favApps.getOrNull(idx)?.let { launchApp(it) }
@@ -277,6 +427,24 @@ open class LauncherActivity : Activity() {
         ime().hideSoftInputFromWindow(search.windowToken, 0)
         search.clearFocus()
         grid.requestFocus()
+    }
+
+    private fun selectedApp(): LauncherApp? =
+        shown.getOrNull(grid.selectedItemPosition.takeIf { it >= 0 } ?: 0)
+
+    private fun onPrompt(label: String) {
+        when (label) {
+            "Open" -> selectedApp()?.let { launchApp(it) }
+            "Options" -> selectedApp()?.let { showMenu(it) }
+            "Search" -> {
+                search.requestFocus()
+                ime().showSoftInput(search, 0)
+            }
+            "Clear" -> {
+                search.text.clear()
+                dismissIme()
+            }
+        }
     }
 
     private fun showMenu(a: LauncherApp) {
@@ -304,6 +472,10 @@ open class LauncherActivity : Activity() {
             favRow.getChildAt(0).requestFocus()
             return
         }
+        if (code == KeyEvent.KEYCODE_DPAD_UP && cur < cols && mediaBox.visibility == View.VISIBLE) {
+            mediaBtns[1].requestFocus()
+            return
+        }
         val target = when (code) {
             KeyEvent.KEYCODE_DPAD_LEFT -> if (cur % cols == 0) cur else cur - 1
             KeyEvent.KEYCODE_DPAD_RIGHT -> if (cur % cols == cols - 1 || cur == last) cur else cur + 1
@@ -313,7 +485,8 @@ open class LauncherActivity : Activity() {
         if (target != cur) grid.setSelection(target)
     }
 
-    override fun onKeyDown(code: Int, e: KeyEvent): Boolean = (if (favFocused()) favKey(code) else null) ?: when (code) {
+    override fun onKeyDown(code: Int, e: KeyEvent): Boolean =
+        (if (favFocused()) favKey(code) else if (mediaFocused()) mediaKey(code) else null) ?: when (code) {
         KeyEvent.KEYCODE_DPAD_LEFT,
         KeyEvent.KEYCODE_DPAD_RIGHT,
         KeyEvent.KEYCODE_DPAD_UP,
