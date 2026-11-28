@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
     </queries>
@@ -31,6 +32,7 @@
             android:enabled="false"
             android:exported="true"
             android:launchMode="singleTask"
+            android:taskAffinity="dev.popcat19.thorutil.home"
             android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|navigation"
             android:windowSoftInputMode="stateHidden|adjustResize"
@@ -39,6 +41,22 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".launcher.LauncherSecondaryActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="dev.popcat19.thorutil.home2"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|navigation"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:label="ThorUtil Home (bottom)"
+            android:theme="@style/Theme.ThorUtil">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.SECONDARY_HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>

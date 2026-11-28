@@ -64,6 +64,8 @@ object Export {
         "recents_overlay" to Section.RECENTS,
         "recents_locked_pkgs" to Section.RECENTS,
         "launcher_home" to Section.LAUNCHER,
+        "launcher_favorites" to Section.LAUNCHER,
+        "launcher_tags" to Section.LAUNCHER,
         "autolaunch_apps" to Section.AUTOLAUNCH,
     )
 

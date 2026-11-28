@@ -177,6 +177,10 @@ object AynActions {
     fun back(ctx: Context) {
         dismissRecentsForAction(ctx)
         val d = lockedDisplay?.let(::other) ?: targetDisplay(ctx)
+        if (dev.popcat19.thorutil.launcher.LauncherActivity.consumeBack(d)) {
+            Log.i(TAG, "back consumed by launcher ime on $d")
+            return
+        }
         Log.i(TAG, "back -> $d")
         Priv.sh("input -d $d keyevent BACK")
         PipFix.nudge()
@@ -297,6 +301,9 @@ object AynActions {
         if (ai != null && ai.packageName != "android") {
             val comp = "${ai.packageName}/${ai.name}".filter { it.isLetterOrDigit() || it in "._/$" }
             if ('/' in comp) return comp
+        }
+        if (cat == "android.intent.category.SECONDARY_HOME" && Prefs.launcherHome(ctx)) {
+            return "${ctx.packageName}/.launcher.LauncherSecondaryActivity"
         }
         val out = Priv.sh("cmd package resolve-activity --brief -a android.intent.action.MAIN -c $cat").out
         val line = out.lines().map { it.trim() }.lastOrNull { '/' in it && !it.startsWith("priority=") } ?: return null

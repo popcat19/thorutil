@@ -51,6 +51,9 @@ object Prefs {
     private const val AYN_SCREEN_LOCK = "ayn_screen_lock"
     private const val RECENTS_OVERLAY = "recents_overlay"
     private const val LAUNCHER_HOME = "launcher_home"
+    private const val LAUNCHER_FAVORITES = "launcher_favorites"
+    private const val LAUNCHER_TAGS = "launcher_tags"
+    private const val LAUNCHER_PREV_HOME = "launcher_prev_home"
     private const val RECENTS_LOCKED_PKGS = "recents_locked_pkgs"
     private const val AUTOLAUNCH_APPS = "autolaunch_apps"
     private const val CHANGELOG_SEEN = "changelog_seen"
@@ -219,6 +222,15 @@ object Prefs {
 
     fun launcherHome(ctx: Context) = sp(ctx).getBoolean(LAUNCHER_HOME, false)
     fun setLauncherHome(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(LAUNCHER_HOME, v).apply()
+
+    fun launcherFavorites(ctx: Context): String = sp(ctx).getString(LAUNCHER_FAVORITES, "") ?: ""
+    fun setLauncherFavorites(ctx: Context, v: String) = sp(ctx).edit().putString(LAUNCHER_FAVORITES, v).apply()
+
+    fun launcherTags(ctx: Context): String = sp(ctx).getString(LAUNCHER_TAGS, "") ?: ""
+    fun setLauncherTags(ctx: Context, v: String) = sp(ctx).edit().putString(LAUNCHER_TAGS, v).apply()
+
+    fun launcherPrevHome(ctx: Context): String = sp(ctx).getString(LAUNCHER_PREV_HOME, "") ?: ""
+    fun setLauncherPrevHome(ctx: Context, v: String) = sp(ctx).edit().putString(LAUNCHER_PREV_HOME, v).apply()
 
     fun recentsLockedPackages(ctx: Context): Set<String> {
         val raw = sp(ctx).getString(RECENTS_LOCKED_PKGS, "") ?: ""

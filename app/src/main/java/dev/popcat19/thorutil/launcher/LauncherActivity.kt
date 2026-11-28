@@ -1,6 +1,7 @@
 package dev.popcat19.thorutil.launcher
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -24,12 +25,25 @@ import dev.popcat19.thorutil.recents.PromptFlowLayout
 import dev.popcat19.thorutil.recents.PromptGlyph
 import dev.popcat19.thorutil.recents.RecentsPrompts
 
-class LauncherActivity : Activity() {
+open class LauncherActivity : Activity() {
     private var all: List<LauncherApp> = emptyList()
     private var shown: List<LauncherApp> = emptyList()
     private lateinit var grid: GridView
     private lateinit var search: EditText
     private var display = 0
+    @Volatile private var imeUp = false
+
+    companion object {
+        private val live = java.util.concurrent.ConcurrentHashMap<Int, LauncherActivity>()
+
+        // True when the home on that display had the keyboard up and closed it, so Back must not propagate.
+        fun consumeBack(display: Int): Boolean {
+            val a = live[display] ?: return false
+            if (!a.imeUp) return false
+            a.runOnUiThread { a.dismissIme() }
+            return true
+        }
+    }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -112,6 +126,10 @@ class LauncherActivity : Activity() {
             }
             adapter = this@LauncherActivity.adapter
             setOnItemClickListener { _, _, i, _ -> shown.getOrNull(i)?.let { launchApp(it) } }
+            setOnTouchListener { _, ev ->
+                if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && search.hasFocus()) dismissIme()
+                false
+            }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
         root.addView(grid)
@@ -119,17 +137,23 @@ class LauncherActivity : Activity() {
             setPadding(0, dp(8), 0, 0)
             for (p in listOf(
                 ActionPrompt(PromptGlyph.A, "Open"),
+                ActionPrompt(PromptGlyph.X, "Options"),
                 ActionPrompt(PromptGlyph.Y, "Search"),
                 ActionPrompt(PromptGlyph.B, "Clear"),
             )) addView(RecentsPrompts.buildPromptChip(context, p))
         }
         root.addView(footer)
         setContentView(root)
+        root.setOnApplyWindowInsetsListener { v, insets ->
+            imeUp = insets.isVisible(android.view.WindowInsets.Type.ime())
+            v.onApplyWindowInsets(insets)
+        }
         grid.requestFocus()
     }
 
     override fun onResume() {
         super.onResume()
+        live[display] = this
         search.text.clear()
         Bg.post {
             val list = LauncherApps.load(applicationContext)
@@ -140,8 +164,21 @@ class LauncherActivity : Activity() {
         }
     }
 
+    override fun onPause() {
+        if (live[display] === this) live.remove(display)
+        imeUp = false
+        super.onPause()
+    }
+
     private fun applyFilter() {
-        shown = LauncherApps.filter(all, search.text.toString())
+        val q = search.text.toString()
+        val list = LauncherApps.filter(all, q)
+        shown = if (q.isBlank()) {
+            val fav = LauncherStore.favorites(this)
+            list.sortedBy { a -> fav.indexOf(a.pkg).let { if (it < 0) Int.MAX_VALUE else it } }
+        } else {
+            list
+        }
         adapter.notifyDataSetChanged()
         if (shown.isNotEmpty()) grid.setSelection(0)
     }
@@ -150,7 +187,57 @@ class LauncherActivity : Activity() {
 
     private fun ime() = getSystemService(InputMethodManager::class.java)
 
+    private fun dismissIme() {
+        ime().hideSoftInputFromWindow(search.windowToken, 0)
+        search.clearFocus()
+        grid.requestFocus()
+    }
+
+    private fun showMenu(a: LauncherApp) {
+        val fav = LauncherStore.isFavorite(this, a.pkg)
+        val items = arrayOf(if (fav) "Unfavorite" else "Favorite", "App info", "Uninstall")
+        AlertDialog.Builder(this).setTitle(a.label).setItems(items) { _, which ->
+            when (which) {
+                0 -> {
+                    LauncherActions.toggleFavorite(this, a.pkg)
+                    applyFilter()
+                }
+                1 -> LauncherActions.appInfo(a.pkg, display)
+                2 -> LauncherActions.uninstall(a.pkg, display)
+            }
+        }.show()
+    }
+
+    // Clamps at grid edges: no wrap, no focus escape to the search field.
+    private fun moveSelection(code: Int) {
+        val last = shown.lastIndex
+        if (last < 0) return
+        val cols = grid.numColumns.coerceAtLeast(1)
+        val cur = grid.selectedItemPosition.coerceAtLeast(0).coerceAtMost(last)
+        val target = when (code) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (cur % cols == 0) cur else cur - 1
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (cur % cols == cols - 1 || cur == last) cur else cur + 1
+            KeyEvent.KEYCODE_DPAD_UP -> if (cur < cols) cur else cur - cols
+            else -> if (cur + cols <= last) cur + cols else if (cur / cols < last / cols) last else cur
+        }
+        if (target != cur) grid.setSelection(target)
+    }
+
     override fun onKeyDown(code: Int, e: KeyEvent): Boolean = when (code) {
+        KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_UP,
+        KeyEvent.KEYCODE_DPAD_DOWN -> if (currentFocus === grid) {
+            moveSelection(code)
+            true
+        } else {
+            super.onKeyDown(code, e)
+        }
+        KeyEvent.KEYCODE_BUTTON_X,
+        KeyEvent.KEYCODE_BUTTON_START -> {
+            shown.getOrNull(grid.selectedItemPosition)?.let { showMenu(it) }
+            true
+        }
         KeyEvent.KEYCODE_BUTTON_Y -> {
             search.requestFocus()
             ime().showSoftInput(search, 0)
@@ -158,8 +245,7 @@ class LauncherActivity : Activity() {
         }
         KeyEvent.KEYCODE_BUTTON_B -> {
             search.text.clear()
-            ime().hideSoftInputFromWindow(search.windowToken, 0)
-            grid.requestFocus()
+            dismissIme()
             true
         }
         KeyEvent.KEYCODE_BUTTON_A -> if (currentFocus === grid) {
