@@ -287,7 +287,8 @@ object Priv {
     // Termux cannot read app logcat, so failures and slow commands go to a world-readable file.
     private fun trace(backend: String, cmd: String, r: Result?, t0: Long) {
         val ms = SystemClock.elapsedRealtime() - t0
-        if (r != null && r.code == 0 && ms < TRACE_SLOW_MS) return
+        val watched = cmd.startsWith("am ") || cmd.startsWith("input ") || cmd.contains("dumpsys window") || cmd.startsWith("cmd package")
+        if (!watched && r != null && r.code == 0 && ms < TRACE_SLOW_MS) return
         fun clean(s: String, n: Int) = s.take(n).replace(Regex("['\"$`\\\\]"), " ").replace(Regex("\\s+"), " ")
         val err = when {
             r != null -> ""
@@ -295,7 +296,7 @@ object Priv {
             backend == "root" -> rootShell.lastError
             else -> "shizuku=${shizukuShell.lastError} root=${rootShell.lastError}"
         }
-        val line = "${System.currentTimeMillis()} $backend code=${r?.code ?: "null"} ${ms}ms err=${clean(err, 200)} cmd=${clean(cmd, 200)} out=${clean(r?.out ?: "", 300)}"
+        val line = "${System.currentTimeMillis()} $backend code=${r?.code ?: "null"} ${ms}ms err=${clean(err, 200)} cmd=${clean(cmd, 200)} out=${clean(r?.out ?: "", 600)}"
         Bg.post {
             val f = TRACE_FILE
             val w = "[ \$(wc -c < $f 2>/dev/null || echo 0) -gt 200000 ] && : > $f; printf '%s\\n' '$line' >> $f; chmod 666 $f"
