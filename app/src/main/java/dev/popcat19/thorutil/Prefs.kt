@@ -49,6 +49,7 @@ object Prefs {
     private const val AYN_BACK_GESTURES = "ayn_back_gestures"
     private const val AYN_HOME_SKIP_BDSA = "ayn_home_skip_bdsa"
     private const val AYN_SCREEN_LOCK = "ayn_screen_lock"
+    private const val AYN_SCOPED_SHOULDERS = "ayn_scoped_shoulders"
     private const val RECENTS_OVERLAY = "recents_overlay"
     private const val LAUNCHER_HOME = "launcher_home"
     private const val LAUNCHER_FAVORITES = "launcher_favorites"
@@ -213,6 +214,9 @@ object Prefs {
 
     fun aynHomeSkipBdsa(ctx: Context) = sp(ctx).getBoolean(AYN_HOME_SKIP_BDSA, false)
     fun setAynHomeSkipBdsa(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_HOME_SKIP_BDSA, v).apply()
+
+    fun aynScopedShoulders(ctx: Context) = sp(ctx).getBoolean(AYN_SCOPED_SHOULDERS, false)
+    fun setAynScopedShoulders(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_SCOPED_SHOULDERS, v).apply()
 
     fun aynScreenLock(ctx: Context) = sp(ctx).getBoolean(AYN_SCREEN_LOCK, false)
     fun setAynScreenLock(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean(AYN_SCREEN_LOCK, v).apply()

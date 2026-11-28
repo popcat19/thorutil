@@ -27,6 +27,8 @@ class AynKeyService : AccessibilityService() {
     private var held = false
     private var combo = false
     private var homeHeld = false
+    private var lastScopeCode = 0
+    private var lastScopeAt = 0L
     private var homeCombo = false
     private var homeTapPending = false
     private var backHeld = false
@@ -239,15 +241,44 @@ class AynKeyService : AccessibilityService() {
             }
         }
         if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && homeHeld) {
+            val scoped = Prefs.aynScopedShoulders(applicationContext)
+            if (scoped && code == KeyEvent.KEYCODE_BUTTON_THUMBL) {
+                main.removeCallbacks(homeSingleRun)
+                homeTapPending = false
+                homeCombo = true
+                swallowed.add(code)
+                worker.post { AynActions.run(applicationContext, AynAction.FOCUS_SWAP) }
+                return true
+            }
             val d = AynBinds.HOME[code] ?: return false
             main.removeCallbacks(homeSingleRun)
             homeTapPending = false
             homeCombo = true
             swallowed.add(code)
-            worker.post { AynActions.home(applicationContext, d) }
+            val now = android.os.SystemClock.uptimeMillis()
+            val again = scoped && code == lastScopeCode && now - lastScopeAt <= SCOPE_DOUBLE_MS
+            lastScopeCode = code
+            lastScopeAt = now
+            worker.post {
+                if (again) AynActions.recentsOn(applicationContext, d) else AynActions.home(applicationContext, d)
+            }
             return true
         }
         if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && backHeld) {
+            val scoped = Prefs.aynScopedShoulders(applicationContext)
+            val scopeDisplay = if (scoped) AynBinds.HOME[code] else null
+            if (scopeDisplay != null || (scoped && code == KeyEvent.KEYCODE_BUTTON_THUMBL)) {
+                main.removeCallbacks(backHoldRun)
+                main.removeCallbacks(backSingleRun)
+                backTapPending = false
+                backCombo = true
+                swallowed.add(code)
+                worker.post {
+                    if (scopeDisplay != null) AynActions.back(applicationContext, scopeDisplay)
+                    else AynActions.run(applicationContext, AynAction.FOCUS_SWAP)
+                }
+                return true
+            }
             val action = AynBinds.backBinds(applicationContext)[code] ?: return false
             main.removeCallbacks(backHoldRun)
             main.removeCallbacks(backSingleRun)
@@ -315,6 +346,7 @@ class AynKeyService : AccessibilityService() {
         const val REPEAT_MS = 65L
         const val DOUBLE_TAP_MS = 260L
         const val HOLD_MS = 450L
+        const val SCOPE_DOUBLE_MS = 600L
         val REPEATING = setOf(AynAction.BRIGHTNESS_UP, AynAction.BRIGHTNESS_DOWN)
     }
 }

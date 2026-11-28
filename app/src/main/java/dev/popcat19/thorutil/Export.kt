@@ -61,6 +61,7 @@ object Export {
         "ayn_back_gestures" to Section.AYN,
         "ayn_home_skip_bdsa" to Section.AYN,
         "ayn_screen_lock" to Section.AYN,
+        "ayn_scoped_shoulders" to Section.AYN,
         "recents_overlay" to Section.RECENTS,
         "recents_locked_pkgs" to Section.RECENTS,
         "launcher_home" to Section.LAUNCHER,

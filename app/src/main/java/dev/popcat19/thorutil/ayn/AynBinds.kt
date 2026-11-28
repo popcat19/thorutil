@@ -66,7 +66,7 @@ object AynBinds {
     }
 
     fun backBinds(ctx: Context): Map<Int, AynAction> =
-        if (Prefs.aynBackGestures(ctx)) emptyMap() else BACK
+        if (Prefs.aynBackGestures(ctx) || Prefs.aynScopedShoulders(ctx)) emptyMap() else BACK
 
     fun label(code: Int) = KeyEvent.keyCodeToString(code).removePrefix("KEYCODE_").removePrefix("BUTTON_")
 }

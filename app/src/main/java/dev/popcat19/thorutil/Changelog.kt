@@ -192,6 +192,18 @@ object Changelog {
             applyLegacy = { Prefs.setRecentsOverlay(it, false) },
         ),
         PrefChange(
+            id = "ayn_scoped_shoulders",
+            revision = 1,
+            version = "0.5.0",
+            title = "Scoped Home/Back with shoulders",
+            summary = "Hold Home or Back and press L1 (top) or R1 (bottom) to act on that screen regardless of touch or pad focus. Home + shoulder twice opens recents there. Home or Back + L3 swaps focus without touching the screen.",
+            legacyLabel = "Legacy: Back + shoulder = previous app",
+            newLabel = "New: scoped Home/Back + L3 swap",
+            isNew = { Prefs.aynScopedShoulders(it) },
+            applyNew = { Prefs.setAynScopedShoulders(it, true) },
+            applyLegacy = { Prefs.setAynScopedShoulders(it, false) },
+        ),
+        PrefChange(
             id = "launcher_home",
             revision = 1,
             version = "0.5.0",

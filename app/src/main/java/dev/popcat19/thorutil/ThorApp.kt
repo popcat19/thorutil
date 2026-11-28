@@ -18,6 +18,7 @@ class ThorApp : Application() {
         super.onCreate()
         Shizuku.addBinderReceivedListenerSticky(onBinder)
         Shizuku.addRequestPermissionResultListener(onPermission)
+        if (Prefs.launcherHome(this)) dev.popcat19.thorutil.launcher.LauncherSwitch.sync(this)
     }
 
     private fun kick(why: String) {

@@ -174,9 +174,27 @@ object AynActions {
         Daemon.tap(ctx)
     }
 
-    fun back(ctx: Context) {
+    // Scoped recents: opens the overlay on an explicit display (Home + shoulder, pressed twice).
+    fun recentsOn(ctx: Context, display: Int) {
+        if (!Prefs.recentsOverlay(ctx)) {
+            home(ctx, display)
+            return
+        }
+        if (display == lockedDisplay) {
+            Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "${titleName(display)} locked", false, display)
+            return
+        }
+        RecentsOverlay.toggle(ctx, display)
+    }
+
+    // Null display = lone Back, routed to the touched-or-focused screen.
+    fun back(ctx: Context, display: Int? = null) {
         dismissRecentsForAction(ctx)
-        val d = lockedDisplay?.let(::other) ?: targetDisplay(ctx)
+        if (display != null && display == lockedDisplay) {
+            Feedback.show(ctx, FeedbackType.SCREEN_LOCK, "${titleName(display)} locked", false, display)
+            return
+        }
+        val d = display ?: lockedDisplay?.let(::other) ?: targetDisplay(ctx)
         if (dev.popcat19.thorutil.launcher.LauncherActivity.consumeBack(d)) {
             Log.i(TAG, "back consumed by launcher ime on $d")
             return

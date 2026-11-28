@@ -65,6 +65,7 @@ fun AynCard(epoch: Int = 0, uiActive: Boolean = true) {
     var backGestures by remember(epoch) { mutableStateOf(Prefs.aynBackGestures(ctx)) }
     var homeSkipBdsa by remember(epoch) { mutableStateOf(Prefs.aynHomeSkipBdsa(ctx)) }
     var screenLock by remember(epoch) { mutableStateOf(Prefs.aynScreenLock(ctx)) }
+    var scopedShoulders by remember(epoch) { mutableStateOf(Prefs.aynScopedShoulders(ctx)) }
     var locked by remember { mutableStateOf(AynActions.lockedDisplay()) }
 
     LaunchedEffect(uiActive) {
@@ -121,6 +122,14 @@ fun AynCard(epoch: Int = 0, uiActive: Boolean = true) {
             ) {
                 backGestures = it
                 Prefs.setAynBackGestures(ctx, it)
+            }
+            SwitchRow(
+                title = "Scoped Home/Back (hold + L1/R1)",
+                subtitle = "L1 top, R1 bottom, ignores touch focus. Home + shoulder 2x opens recents there; Home/Back + L3 swaps focus. Replaces Back + L1/R1 previous app.",
+                checked = scopedShoulders,
+            ) {
+                scopedShoulders = it
+                Prefs.setAynScopedShoulders(ctx, it)
             }
             SwitchRow(
                 title = "Home skips AYN/BDSA overlay",

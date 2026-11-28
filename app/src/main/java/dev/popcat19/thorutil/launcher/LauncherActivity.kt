@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
@@ -14,6 +15,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.GridView
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextClock
@@ -32,6 +34,9 @@ open class LauncherActivity : Activity() {
     private lateinit var search: EditText
     private var display = 0
     @Volatile private var imeUp = false
+    private var favApps: List<LauncherApp> = emptyList()
+    private lateinit var favRow: LinearLayout
+    private lateinit var favScroll: HorizontalScrollView
 
     companion object {
         private val live = java.util.concurrent.ConcurrentHashMap<Int, LauncherActivity>()
@@ -132,6 +137,13 @@ open class LauncherActivity : Activity() {
             }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         }
+        favRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        favScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            visibility = View.GONE
+            addView(favRow)
+        }
+        root.addView(favScroll)
         root.addView(grid)
         val footer = PromptFlowLayout(this, dp(14), dp(4)).apply {
             setPadding(0, dp(8), 0, 0)
@@ -173,17 +185,91 @@ open class LauncherActivity : Activity() {
     private fun applyFilter() {
         val q = search.text.toString()
         val list = LauncherApps.filter(all, q)
-        shown = if (q.isBlank()) {
+        if (q.isBlank()) {
             val fav = LauncherStore.favorites(this)
-            list.sortedBy { a -> fav.indexOf(a.pkg).let { if (it < 0) Int.MAX_VALUE else it } }
+            favApps = fav.mapNotNull { p -> all.firstOrNull { it.pkg == p } }
+            shown = list.filter { it.pkg !in fav }
         } else {
-            list
+            favApps = emptyList()
+            shown = list
         }
+        renderFavs()
         adapter.notifyDataSetChanged()
         if (shown.isNotEmpty()) grid.setSelection(0)
     }
 
-    private fun launchApp(a: LauncherApp) = LauncherApps.launch(a, display)
+    private fun launchApp(a: LauncherApp) {
+        if (search.hasFocus()) dismissIme()
+        LauncherApps.launch(a, display)
+    }
+
+    private fun renderFavs() {
+        favRow.removeAllViews()
+        favScroll.visibility = if (favApps.isEmpty()) View.GONE else View.VISIBLE
+        for (a in favApps) {
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                isFocusable = true
+                setPadding(dp(10), dp(6), dp(10), dp(6))
+                background = StateListDrawable().apply {
+                    addState(
+                        intArrayOf(android.R.attr.state_focused),
+                        GradientDrawable().apply { setColor(0x38FFFFFF); cornerRadius = dp(12).toFloat() },
+                    )
+                }
+                addView(ImageView(context).apply {
+                    setImageDrawable(a.icon)
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+                })
+                addView(TextView(context).apply {
+                    text = a.label
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    textSize = 10f
+                    gravity = Gravity.CENTER
+                    maxWidth = dp(72)
+                    setTextColor(Color.WHITE)
+                })
+                setOnClickListener { launchApp(a) }
+                setOnLongClickListener { showMenu(a); true }
+            }
+            favRow.addView(cell)
+        }
+    }
+
+    private fun favFocused() = ::favRow.isInitialized && favRow.hasFocus()
+
+    // Null means the key is not handled by the favorites row and falls through to the grid handler.
+    private fun favKey(code: Int): Boolean? {
+        val idx = (0 until favRow.childCount).firstOrNull { favRow.getChildAt(it).hasFocus() } ?: return null
+        return when (code) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                favRow.getChildAt((idx - 1).coerceAtLeast(0)).requestFocus()
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                favRow.getChildAt((idx + 1).coerceAtMost(favRow.childCount - 1)).requestFocus()
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                grid.requestFocus()
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_UP -> true
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_DPAD_CENTER -> {
+                favApps.getOrNull(idx)?.let { launchApp(it) }
+                true
+            }
+            KeyEvent.KEYCODE_BUTTON_X,
+            KeyEvent.KEYCODE_BUTTON_START -> {
+                favApps.getOrNull(idx)?.let { showMenu(it) }
+                true
+            }
+            else -> null
+        }
+    }
 
     private fun ime() = getSystemService(InputMethodManager::class.java)
 
@@ -202,8 +288,8 @@ open class LauncherActivity : Activity() {
                     LauncherActions.toggleFavorite(this, a.pkg)
                     applyFilter()
                 }
-                1 -> LauncherActions.appInfo(a.pkg, display)
-                2 -> LauncherActions.uninstall(a.pkg, display)
+                1 -> LauncherActions.appInfo(this, a.pkg)
+                2 -> LauncherActions.uninstall(this, a.pkg)
             }
         }.show()
     }
@@ -214,6 +300,10 @@ open class LauncherActivity : Activity() {
         if (last < 0) return
         val cols = grid.numColumns.coerceAtLeast(1)
         val cur = grid.selectedItemPosition.coerceAtLeast(0).coerceAtMost(last)
+        if (code == KeyEvent.KEYCODE_DPAD_UP && cur < cols && favRow.childCount > 0) {
+            favRow.getChildAt(0).requestFocus()
+            return
+        }
         val target = when (code) {
             KeyEvent.KEYCODE_DPAD_LEFT -> if (cur % cols == 0) cur else cur - 1
             KeyEvent.KEYCODE_DPAD_RIGHT -> if (cur % cols == cols - 1 || cur == last) cur else cur + 1
@@ -223,7 +313,7 @@ open class LauncherActivity : Activity() {
         if (target != cur) grid.setSelection(target)
     }
 
-    override fun onKeyDown(code: Int, e: KeyEvent): Boolean = when (code) {
+    override fun onKeyDown(code: Int, e: KeyEvent): Boolean = (if (favFocused()) favKey(code) else null) ?: when (code) {
         KeyEvent.KEYCODE_DPAD_LEFT,
         KeyEvent.KEYCODE_DPAD_RIGHT,
         KeyEvent.KEYCODE_DPAD_UP,

@@ -32,13 +32,16 @@ object LauncherSwitch {
         }
     }
 
-    // Keeps component state matching the pref after import / changelog apply.
+    // Keeps component state matching the pref after import / changelog apply / app upgrade.
     fun sync(ctx: Context) {
         val app = ctx.applicationContext
         val want = Prefs.launcherHome(app)
-        val have = components(app).all { enabledState(app, it) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED }
-        if (want == have) return
-        set(app, want)
+        if (!want) {
+            val anyOn = components(app).any { enabledState(app, it) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED }
+            if (anyOn) set(app, false)
+            return
+        }
+        applyComponents(app, true)
     }
 
     private fun restore(app: Context) {
