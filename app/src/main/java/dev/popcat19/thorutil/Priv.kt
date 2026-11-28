@@ -22,6 +22,8 @@ object Priv {
     private const val TIMEOUT_MS = 10_000L
     private const val INIT_TIMEOUT_MS = 5_000L
     private const val ROOT_RETRY_MS = 60_000L
+    private const val TRACE_SLOW_MS = 1_500L
+    private const val TRACE_FILE = "/data/local/tmp/thorutil-priv.log"
 
     enum class Backend { SHIZUKU, ROOT, NONE }
 
@@ -249,22 +251,40 @@ object Priv {
     private fun run(cmd: String): Result {
         // Only fall back to root if Shizuku is unavailable or fails to launch;
         // never probe su while Shizuku is active.
+        val t0 = SystemClock.elapsedRealtime()
         if (shizukuReady()) {
             val r = shizukuShell.exec(cmd)
+            trace("shizuku", cmd, r, t0)
             if (r != null) {
                 if (r.code != 0) Log.w(TAG, "'$cmd' -> ${r.code}: ${r.out}")
                 return r
             }
         }
         if (rootReady()) {
+            val t1 = SystemClock.elapsedRealtime()
             val r = rootShell.exec(cmd)
+            trace("root", cmd, r, t1)
             if (r != null) {
                 if (r.code != 0) Log.w(TAG, "'$cmd' -> ${r.code}: ${r.out}")
                 return r
             }
             rootFailedAt = SystemClock.elapsedRealtime()
         }
+        trace("none", cmd, null, t0)
         return Result(-1, "no privilege backend")
+    }
+
+    // Termux cannot read app logcat, so failures and slow commands go to a world-readable file.
+    private fun trace(backend: String, cmd: String, r: Result?, t0: Long) {
+        val ms = SystemClock.elapsedRealtime() - t0
+        if (r != null && r.code == 0 && ms < TRACE_SLOW_MS) return
+        fun clean(s: String, n: Int) = s.take(n).replace(Regex("['\"$`\\\\]"), " ").replace(Regex("\\s+"), " ")
+        val line = "${System.currentTimeMillis()} $backend code=${r?.code ?: "null"} ${ms}ms cmd=${clean(cmd, 200)} out=${clean(r?.out ?: "", 300)}"
+        Bg.post {
+            val f = TRACE_FILE
+            val w = "[ \$(wc -c < $f 2>/dev/null || echo 0) -gt 200000 ] && : > $f; printf '%s\\n' '$line' >> $f; chmod 666 $f"
+            if (backend == "root") rootShell.exec(w) else shizukuShell.exec(w)
+        }
     }
 
     // Shizuku 13 keeps newProcess private; reflection is the documented workaround.
