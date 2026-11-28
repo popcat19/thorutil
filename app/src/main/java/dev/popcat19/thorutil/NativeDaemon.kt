@@ -30,10 +30,15 @@ class NativeDaemon(
     fun isRunning(): Boolean =
         Priv.sh("p=${pidExpr()}; [ -n \"\$p\" ] && [ -d \"/proc/\$p\" ]").code == 0
 
-    // Signal via active backend, falling back to root if the daemon is uid 0 and Shizuku is shell.
+    // Signal via active backend, falling back to root only if the daemon is alive and
+    // shell Shizuku was denied (e.g. a root-started daemon while Shizuku runs as shell).
     fun signal(sig: String): Boolean {
+        val check = "p=${pidExpr()}; if [ -z \"\$p\" ] || [ ! -d \"/proc/\$p\" ]; then echo gone; " +
+            "else kill $sig \$p 2>/dev/null && echo ok || echo deny; fi"
+        val out = Priv.sh(check).out.trim()
+        if (out == "ok") return true
+        if (out != "deny" || Priv.shizukuIsRoot()) return false
         val cmd = "p=${pidExpr()}; [ -n \"\$p\" ] && kill $sig \$p 2>/dev/null"
-        if (Priv.sh(cmd).code == 0) return true
         return Priv.rootReady() && Priv.shRoot(cmd).code == 0
     }
 

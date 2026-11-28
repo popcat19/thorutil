@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.util.Log
 import rikka.shizuku.Shizuku
+import rikka.shizuku.ShizukuRemoteProcess
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
@@ -52,11 +53,11 @@ object Priv {
                 closeLocked()
                 return false
             }
-            val ok = try {
-                p.exitValue()
-                false
-            } catch (_: IllegalThreadStateException) {
-                true
+            // ShizukuRemoteProcess.exitValue() forwards IllegalThreadStateException across Binder,
+            // where Parcel turns it into IllegalArgumentException (its superclass); use alive().
+            val ok = when (p) {
+                is ShizukuRemoteProcess -> runCatching { p.alive() }.getOrDefault(false)
+                else -> runCatching { p.isAlive }.getOrDefault(false)
             }
             if (!ok) closeLocked()
             return ok
@@ -66,11 +67,15 @@ object Priv {
             val p = proc
             runCatching { writer?.close() }
             runCatching { reader?.close() }
-            runCatching { p?.errorStream?.close() }
+            if (p !is ShizukuRemoteProcess) runCatching { p?.errorStream?.close() }
             runCatching { p?.destroy() }
             writer = null
             reader = null
             proc = null
+        }
+
+        fun close() = synchronized(lock) {
+            closeLocked()
         }
 
         fun ensureOpen(): Boolean = synchronized(lock) {
@@ -196,6 +201,13 @@ object Priv {
         Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
     } catch (e: Throwable) {
         false
+    }
+
+    fun shizukuIsRoot(): Boolean =
+        shizukuReady() && runCatching { Shizuku.getUid() == 0 }.getOrDefault(false)
+
+    fun onShizukuDead() {
+        shizukuShell.close()
     }
 
     @Volatile

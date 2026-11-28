@@ -10,6 +10,7 @@ import rikka.shizuku.Shizuku
 // ShizukuProvider wakes this process when the server comes up.
 class ThorApp : Application() {
     private val onBinder = Shizuku.OnBinderReceivedListener { kick("binder") }
+    private val onBinderDead = Shizuku.OnBinderDeadListener { Priv.onShizukuDead() }
     private val onPermission = Shizuku.OnRequestPermissionResultListener { _, result ->
         if (result == PackageManager.PERMISSION_GRANTED) kick("granted")
     }
@@ -17,6 +18,7 @@ class ThorApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Shizuku.addBinderReceivedListenerSticky(onBinder)
+        Shizuku.addBinderDeadListener(onBinderDead)
         Shizuku.addRequestPermissionResultListener(onPermission)
         if (Prefs.launcherHome(this)) dev.popcat19.thorutil.launcher.LauncherSwitch.sync(this)
     }
