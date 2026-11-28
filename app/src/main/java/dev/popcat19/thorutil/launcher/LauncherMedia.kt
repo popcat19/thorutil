@@ -10,6 +10,8 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
+import dev.popcat19.thorutil.Bg
+import dev.popcat19.thorutil.Priv
 
 data class MediaInfo(
     val title: String,
@@ -23,8 +25,21 @@ object LauncherMedia {
     fun listenerEnabled(ctx: Context): Boolean =
         NotificationManagerCompat.getEnabledListenerPackages(ctx).contains(ctx.packageName)
 
-    fun openListenerSettings(act: Activity) {
-        runCatching { act.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+    // Android 13 blocks the listener toggle for sideloaded apps, so grant through the privileged shell first.
+    fun openListenerSettings(ctx: Context) {
+        val app = ctx.applicationContext
+        Bg.post {
+            val comp = ComponentName(app, MediaListenerService::class.java).flattenToString()
+                .filter { it.isLetterOrDigit() || it in "._/$" }
+            val r = Priv.sh("cmd notification allow_listener '$comp'")
+            if (r.code != 0 || !listenerEnabled(app)) {
+                runCatching {
+                    app.startActivity(
+                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+        }
     }
 
     private fun controller(ctx: Context): MediaController? {

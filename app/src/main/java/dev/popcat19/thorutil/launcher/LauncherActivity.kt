@@ -449,15 +449,28 @@ open class LauncherActivity : Activity() {
 
     private fun showMenu(a: LauncherApp) {
         val fav = LauncherStore.isFavorite(this, a.pkg)
-        val items = arrayOf(if (fav) "Unfavorite" else "Favorite", "App info", "Uninstall")
-        AlertDialog.Builder(this).setTitle(a.label).setItems(items) { _, which ->
-            when (which) {
-                0 -> {
+        val items = ArrayList<String>()
+        items.add(if (fav) "Unfavorite" else "Favorite")
+        if (fav) {
+            items.add("Move earlier")
+            items.add("Move later")
+        }
+        items.add("App info")
+        items.add("Uninstall")
+        AlertDialog.Builder(this).setTitle(a.label).setItems(items.toTypedArray()) { _, which ->
+            when (items[which]) {
+                "Favorite", "Unfavorite" -> {
                     LauncherActions.toggleFavorite(this, a.pkg)
                     applyFilter()
                 }
-                1 -> LauncherActions.appInfo(this, a.pkg)
-                2 -> LauncherActions.uninstall(this, a.pkg)
+                "Move earlier", "Move later" -> {
+                    LauncherStore.moveFavorite(this, a.pkg, if (items[which] == "Move earlier") -1 else 1)
+                    applyFilter()
+                    val i = favApps.indexOfFirst { it.pkg == a.pkg }
+                    if (i >= 0) favRow.getChildAt(i)?.requestFocus()
+                }
+                "App info" -> LauncherActions.appInfo(this, a.pkg)
+                "Uninstall" -> LauncherActions.uninstall(this, a.pkg)
             }
         }.show()
     }
