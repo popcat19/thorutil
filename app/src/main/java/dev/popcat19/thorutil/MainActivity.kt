@@ -85,6 +85,7 @@ private fun Screen(modifier: Modifier, openChangelogSignal: Int, uiActive: Boole
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var backend by remember { mutableStateOf(Priv.Backend.NONE) }
+    var diag by remember { mutableStateOf("") }
     var tick by remember { mutableIntStateOf(0) }
     var prefsEpoch by remember { mutableIntStateOf(0) }
     var showChangelog by remember { mutableStateOf(false) }
@@ -101,6 +102,7 @@ private fun Screen(modifier: Modifier, openChangelogSignal: Int, uiActive: Boole
 
     LaunchedEffect(tick) {
         backend = withContext(Dispatchers.IO) { Priv.backend() }
+        diag = withContext(Dispatchers.IO) { Priv.diagnose() }
     }
 
     Column(
@@ -144,6 +146,7 @@ private fun Screen(modifier: Modifier, openChangelogSignal: Int, uiActive: Boole
                         Priv.Backend.NONE -> "✗ None. Start Shizuku and grant access, or grant root."
                     }
                 )
+                if (diag.isNotEmpty()) Text(diag, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         runCatching { if (Shizuku.pingBinder()) Shizuku.requestPermission(1) }

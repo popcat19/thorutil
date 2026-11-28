@@ -306,6 +306,15 @@ object Priv {
         }
     }
 
+    fun diagnose(): String {
+        val ready = shizukuReady()
+        val t0 = SystemClock.elapsedRealtime()
+        val r = if (ready) shizukuShell.exec("id -u; am stack list | head -n 3") else null
+        val ms = SystemClock.elapsedRealtime() - t0
+        val shell = if (r != null) "rc=${r.code} out=${r.out.take(120).replace('\n', ' ')}" else "null err=${shizukuShell.lastError}"
+        return "shizuku ready=$ready shell: $shell (${ms}ms)"
+    }
+
     // Shizuku 13 keeps newProcess private; reflection is the documented workaround.
     private fun newShizukuProcess(argv: Array<String>): Process {
         val m = Shizuku::class.java.getDeclaredMethod(
