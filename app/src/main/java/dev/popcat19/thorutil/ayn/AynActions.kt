@@ -305,25 +305,10 @@ object AynActions {
         }
         if (r.code != 0 || r.out.contains("Error:")) {
             val r2 = Priv.sh("am start --display $d -a android.intent.action.MAIN -c $cat -f 0x10200000")
-            if (r2.code != 0 || r2.out.contains("Error:")) {
-                if (!localHome(ctx, comp, cat, d)) Priv.sh("input -d $d keyevent HOME")
-            }
+            if (r2.code != 0 || r2.out.contains("Error:")) Priv.sh("input -d $d keyevent HOME")
         }
         PipFix.nudge()
         if (display != null) Feedback.show(ctx, FeedbackType.HOME, "Home: ${name(d)}", d == TOP, d)
-    }
-
-    // Shizuku and root both down (e.g. after a reboot): every shell path fails, so start locally.
-    private fun localHome(ctx: Context, comp: String?, cat: String, d: Int): Boolean = runCatching {
-        val intent = Intent(Intent.ACTION_MAIN)
-            .addCategory(cat)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        comp?.let { android.content.ComponentName.unflattenFromString(it) }?.let { intent.setComponent(it) }
-        ctx.startActivity(intent, android.app.ActivityOptions.makeBasic().setLaunchDisplayId(d).toBundle())
-        true
-    }.getOrElse {
-        Log.w(TAG, "local home on $d failed", it)
-        false
     }
 
     private fun resolveHomeComponent(ctx: Context, cat: String): String? {
