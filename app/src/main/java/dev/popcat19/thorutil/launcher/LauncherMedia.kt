@@ -70,6 +70,11 @@ object LauncherMedia {
         if (c.playbackState?.state == PlaybackState.STATE_PLAYING) t.pause() else t.play()
     }
 
+    fun setPlaying(ctx: Context, play: Boolean) {
+        val t = controller(ctx)?.transportControls ?: return
+        if (play) t.play() else t.pause()
+    }
+
     fun next(ctx: Context) {
         controller(ctx)?.transportControls?.skipToNext()
     }

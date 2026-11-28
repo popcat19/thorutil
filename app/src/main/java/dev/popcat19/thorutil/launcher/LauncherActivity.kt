@@ -344,25 +344,33 @@ open class LauncherActivity : Activity() {
     }
 
     private var mediaPlaying = false
+    private var mediaHoldUntil = 0L
+    // Separate thread so transport commands never queue behind app loading or shell calls on Bg.
+    private val mediaExec = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     private fun mediaRefresh() {
-        Bg.post {
+        mediaExec.execute {
             val ok = LauncherMedia.listenerEnabled(applicationContext)
             val info = if (ok) LauncherMedia.info(applicationContext) else null
             runOnUiThread { renderMedia(ok, info) }
         }
     }
 
-    // Play/pause flips its icon immediately; later refreshes reconcile with the real session state.
+    // Play/pause flips its icon immediately and sends an explicit command; refreshes are held off
+    // briefly so a stale session state does not flip the icon back.
     private fun mediaAct(toggle: Boolean = false, action: (android.content.Context) -> Unit) {
-        if (toggle) {
+        val cmd: (android.content.Context) -> Unit = if (toggle) {
             mediaPlaying = !mediaPlaying
+            mediaHoldUntil = android.os.SystemClock.uptimeMillis() + 2000
             mediaBtns[1].setImageResource(if (mediaPlaying) R.drawable.ic_media_pause else R.drawable.ic_media_play)
+            val play = mediaPlaying
+            { LauncherMedia.setPlaying(it, play) }
+        } else {
+            action
         }
-        Bg.post {
-            action(applicationContext)
-            mediaHandler.postDelayed({ mediaRefresh() }, 500)
-            mediaHandler.postDelayed({ mediaRefresh() }, 1500)
+        mediaExec.execute {
+            cmd(applicationContext)
+            mediaHandler.postDelayed({ mediaRefresh() }, 2100)
         }
     }
 
@@ -392,6 +400,7 @@ open class LauncherActivity : Activity() {
         mediaBox.visibility = View.VISIBLE
         mediaTitle.text = if (info.artist.isBlank()) info.title else "${info.title} \u00B7 ${info.artist}"
         for (b in mediaBtns) b.visibility = View.VISIBLE
+        if (android.os.SystemClock.uptimeMillis() < mediaHoldUntil) return
         mediaPlaying = info.playing
         mediaBtns[1].setImageResource(if (info.playing) R.drawable.ic_media_pause else R.drawable.ic_media_play)
     }
