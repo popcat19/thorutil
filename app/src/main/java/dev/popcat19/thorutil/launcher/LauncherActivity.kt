@@ -46,11 +46,7 @@ open class LauncherActivity : Activity() {
     private val mediaHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val mediaPoll = object : Runnable {
         override fun run() {
-            Bg.post {
-                val ok = LauncherMedia.listenerEnabled(applicationContext)
-                val info = if (ok) LauncherMedia.info(applicationContext) else null
-                runOnUiThread { renderMedia(ok, info) }
-            }
+            mediaRefresh()
             mediaHandler.postDelayed(this, 2000)
         }
     }
@@ -128,12 +124,12 @@ open class LauncherActivity : Activity() {
             setPadding(dp(8), dp(6), dp(8), dp(6))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener {
-                if (!mediaOk) LauncherMedia.openListenerSettings(this@LauncherActivity) else mediaAct { LauncherMedia.playPause(it) }
+                if (!mediaOk) LauncherMedia.openListenerSettings(this@LauncherActivity) else mediaAct(true) { LauncherMedia.playPause(it) }
             }
         }
         mediaBtns = listOf(
             mediaBtn(R.drawable.ic_media_prev) { LauncherMedia.previous(it) },
-            mediaBtn(R.drawable.ic_media_play) { LauncherMedia.playPause(it) },
+            mediaBtn(R.drawable.ic_media_play, true) { LauncherMedia.playPause(it) },
             mediaBtn(R.drawable.ic_media_next) { LauncherMedia.next(it) },
         )
         mediaBox = LinearLayout(this).apply {
@@ -183,6 +179,10 @@ open class LauncherActivity : Activity() {
             selector = GradientDrawable().apply {
                 setColor(0x38FFFFFF)
                 cornerRadius = dp(12).toFloat()
+            }
+            val activeSel = selector
+            setOnFocusChangeListener { _, has ->
+                selector = if (has) activeSel else android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
             }
             adapter = this@LauncherActivity.adapter
             setOnItemClickListener { _, _, i, _ -> shown.getOrNull(i)?.let { launchApp(it) } }
@@ -343,21 +343,37 @@ open class LauncherActivity : Activity() {
         )
     }
 
-    private fun mediaAct(action: (android.content.Context) -> Unit) {
+    private var mediaPlaying = false
+
+    private fun mediaRefresh() {
         Bg.post {
-            action(applicationContext)
-            mediaHandler.postDelayed({ mediaPoll.run() }, 300)
+            val ok = LauncherMedia.listenerEnabled(applicationContext)
+            val info = if (ok) LauncherMedia.info(applicationContext) else null
+            runOnUiThread { renderMedia(ok, info) }
         }
     }
 
-    private fun mediaBtn(icon: Int, action: (android.content.Context) -> Unit) = ImageView(this).apply {
+    // Play/pause flips its icon immediately; later refreshes reconcile with the real session state.
+    private fun mediaAct(toggle: Boolean = false, action: (android.content.Context) -> Unit) {
+        if (toggle) {
+            mediaPlaying = !mediaPlaying
+            mediaBtns[1].setImageResource(if (mediaPlaying) R.drawable.ic_media_pause else R.drawable.ic_media_play)
+        }
+        Bg.post {
+            action(applicationContext)
+            mediaHandler.postDelayed({ mediaRefresh() }, 500)
+            mediaHandler.postDelayed({ mediaRefresh() }, 1500)
+        }
+    }
+
+    private fun mediaBtn(icon: Int, toggle: Boolean = false, action: (android.content.Context) -> Unit) = ImageView(this).apply {
         setImageResource(icon)
         isFocusable = true
         defaultFocusHighlightEnabled = false
         background = focusBg()
         setPadding(dp(10), dp(6), dp(10), dp(6))
         layoutParams = LinearLayout.LayoutParams(dp(44), dp(36))
-        setOnClickListener { mediaAct(action) }
+        setOnClickListener { mediaAct(toggle, action) }
     }
 
     private fun renderMedia(ok: Boolean, info: MediaInfo?) {
@@ -376,6 +392,7 @@ open class LauncherActivity : Activity() {
         mediaBox.visibility = View.VISIBLE
         mediaTitle.text = if (info.artist.isBlank()) info.title else "${info.title} \u00B7 ${info.artist}"
         for (b in mediaBtns) b.visibility = View.VISIBLE
+        mediaPlaying = info.playing
         mediaBtns[1].setImageResource(if (info.playing) R.drawable.ic_media_pause else R.drawable.ic_media_play)
     }
 
@@ -432,6 +449,15 @@ open class LauncherActivity : Activity() {
 
     private fun ime() = getSystemService(InputMethodManager::class.java)
 
+    private fun showIme() {
+        search.requestFocus()
+        search.post {
+            ime().restartInput(search)
+            ime().showSoftInput(search, InputMethodManager.SHOW_IMPLICIT)
+            search.windowInsetsController?.show(android.view.WindowInsets.Type.ime())
+        }
+    }
+
     private fun dismissIme() {
         ime().hideSoftInputFromWindow(search.windowToken, 0)
         search.clearFocus()
@@ -445,10 +471,7 @@ open class LauncherActivity : Activity() {
         when (label) {
             "Open" -> selectedApp()?.let { launchApp(it) }
             "Options" -> selectedApp()?.let { showMenu(it) }
-            "Search" -> {
-                search.requestFocus()
-                ime().showSoftInput(search, 0)
-            }
+            "Search" -> showIme()
             "Clear" -> {
                 search.text.clear()
                 dismissIme()
@@ -524,8 +547,7 @@ open class LauncherActivity : Activity() {
             true
         }
         KeyEvent.KEYCODE_BUTTON_Y -> {
-            search.requestFocus()
-            ime().showSoftInput(search, 0)
+            showIme()
             true
         }
         KeyEvent.KEYCODE_BUTTON_B -> {
